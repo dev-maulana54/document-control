@@ -1,0 +1,13 @@
+# Home Borders menu
+
+Replace the two-option Home border select with an Excel-like split button and keyboard-accessible dropdown. Include all thirteen screenshot presets, Draw Border, Draw Border Grid, Erase Border, Line Color, Line Style, and More Borders. The primary button repeats the last preset. Color/style settings remain view/tool state until a border is applied. Popups use workspace scale, stay inside the viewport, close on Escape/outside/scroll/route changes, and preserve the selected range.
+
+Native XLSX border styles must preserve unrelated font/fill/number/alignment, unrelated border sides/diagonals, and untouched template parts. Presets operate on range geometry: side presets affect that side of the range, All Borders includes internal edges, Outside preserves internal borders, double/thick combinations use their stated native styles. Shared boundaries use a single selected owner and clear an existing opposite neighbor edge so removing a line cannot leave a ghost border. Range/merged-cell validation precedes mutation; partial merges are rejected. Existing all/none callers use the same model.
+
+Merged ranges draw a continuous perimeter and no internal grid. The view reads right/bottom perimeter styles as well as the anchor style, retaining legacy anchor fallback. Border visuals must not change grid geometry, including thick/double lines on very small rows. Draw modes use the selected line color/style, draw directly on grid at any supported zoom, and allow Escape to exit. One drag is one Undo step; single-click applies/erases the nearest edge, rectangle drag applies outside/grid/no borders. No edit UI in readonly; all mutations check current document authorization and save state.
+
+Verify every preset/line/color, side preservation and neighbor erase, custom border preview, merged perimeter, drawing/erase/escape, Undo/Redo, tiny-row geometry, save/reload/native XML export, old formatting callers, readonly and popup keyboard/viewport/zoom.
+
+Native border reference: https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.borders?view=openxml-3.0.1 ; styles https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.borderstylevalues?view=openxml-3.0.1 . CSS approximates dash-dot variants as dashed; the precise native style identifier is retained for Excel.
+
+When an operation would alter only part of an existing merged neighbor border, it is rejected before mutation; select the full parallel side to proceed. Context Format Cells all/none reconciles real-sheet shared edges after deriving axis default styles, with the same5000-cell formatting bound.

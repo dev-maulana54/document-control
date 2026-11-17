@@ -1,0 +1,11 @@
+# Text overflow and independent worksheet zoom
+
+Unwrapped single-line text may visually spill into neighboring empty cells without creating or modifying their values. Occupied cells (including formulas with empty cached results) and merges stop the spill; merged sources do not spill outside their merged area. Left, center and right alignment keep their original text origin. The display layer is clipped to row height, remains below headers/pictures/selection, uses textContent and does not intercept pointer hits. Offscreen text sources can spill into the visible viewport. Editing an overflowing left-aligned cell expands its input into the available empty area; leaving edit mode restores its normal hit area.
+
+Worksheet zoom is view state, 25–400%, with bottom buttons, percentage/range controls, Ctrl/Cmd +/−/0 and Ctrl/Cmd+wheel over the sheet. Only the grid zooms; ribbon, formula bar, sheet tabs, popups and other app UI stay at their current browser scale. It works in read-only mode and does not dirty the document or enter XLSX/approval data. Browser zoom remains available through the browser UI.
+
+Horizontal scroll belongs to the grid. The outer editor stays within viewport width, with no independent horizontal offset that can hide column A. All grid hit testing, selection and image/header drag reuse grid coordinates including its own zoom. Native browser zoom still allows scrolling back to column A. UI popups use workspace/browser scale rather than sheet scale.
+
+Verification: tests/browser-overflow-zoom.py covers display/blockers/wrap/alignment/offscreen origins, unchanged neighbor XML, sheet-only zoom/fixed ribbon, menu scale, keyboard, browser zoom/left scroll, save/reload/export and read-only. Existing small-size, editor-interaction and header-context suites remain required.
+
+Both native scroll-axis limits are applied after combined worksheet/browser CSS zoom; very large axes use the existing proportional display compression. Headers and resize handles remain at UI scale. Maximum-size sheet reachability is tested at400% plus browser zoom1.75. A16000-adjacent-text row checks that blocked sources cause no text measurements; blocker lookup uses binary search and prefix maximum ends.

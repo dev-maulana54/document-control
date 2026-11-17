@@ -1,0 +1,9 @@
+{
+  "name": "document-control-workspace",
+  "private": true,
+  "scripts": {
+    "start": "npm --prefix docuflow start",
+    "check": "npm --prefix docuflow run check",
+    "test": "npm --prefix docuflow test"
+  }
+}

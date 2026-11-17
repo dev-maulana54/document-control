@@ -1,0 +1,23 @@
+# Installed dependencies and local test caches
+**/node_modules/
+**/__pycache__/
+**/.playwright/
+**/test-results/
+
+# Local tool state and machine-specific secrets
+/.aider-desk/
+/.hermes/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Temporary preview logs and deployment packages
+*.log
+*.tar.gz
+*.zip
+
+# Editor / OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,12 @@
+from playwright.sync_api import sync_playwright,expect
+BASE='http://127.0.0.1:4173/'
+def run():
+ with sync_playwright() as p:
+  browser=p.chromium.launch(channel='chromium');page=browser.new_page();errors=[];page.on('pageerror',lambda e:errors.append(str(e)));page.goto(BASE);expect(page.locator('#email')).to_be_visible()
+  page.evaluate('''async()=>{const old=seedDatabase();DocumentAccess.migrate(old);DocumentWorkflow.migrate(old);localStorage.setItem('docuflow.database.v1',JSON.stringify(old));localStorage.setItem('docuflow.session.v1','u-user');localStorage.removeItem('docuflow.clean-start.2026-11-16');await WorkbookStore.put('old-template',new ArrayBuffer(8));}''')
+  page.reload();expect(page.locator('#email')).to_be_visible()
+  counts=page.evaluate('''async()=>({docs:db.documents.length,categories:db.documentCategories.length,types:db.documentTypes.length,users:db.users.length,files:await new Promise((resolve,reject)=>{const r=indexedDB.open('cbi.workbooks.v1',1);r.onsuccess=()=>{const d=r.result,q=d.transaction('files').objectStore('files').getAllKeys();q.onsuccess=()=>{d.close();resolve(q.result)};q.onerror=reject;}})})''');assert counts=={'docs':0,'categories':0,'types':0,'users':1,'files':[]},counts
+  page.locator('#email').fill('admin@docuflow.id');page.locator('#password').fill('admin123');page.get_by_role('button',name='Masuk ke workspace').click();page.goto(BASE+'#document-types');page.locator('[data-action="add-document-type"]').click();page.locator('#type-name').fill('Instruksi Kerja');page.locator('#type-prefix').fill('IK');page.get_by_role('button',name='Simpan Jenis Dokumen',exact=True).click()
+  page.goto(BASE+'#categories');page.get_by_role('button',name='Tambah Kategori',exact=True).click();page.locator('#category-code').fill('IK-BARU');page.locator('#category-name').fill('Kategori Awal');page.get_by_role('combobox',name='Jenis dokumen',exact=True).click();page.get_by_role('option',name='Instruksi Kerja',exact=True).click();page.get_by_role('button',name='Simpan Kategori',exact=True).click();expect(page.get_by_role('row').filter(has_text='IK-BARU')).to_be_visible();page.reload();expect(page.get_by_role('row').filter(has_text='IK-BARU')).to_be_visible();assert page.evaluate('db.documents.length')==0
+  assert not errors,errors;print('PASS old localStorage and workbook files cleared, admin login intact, empty masters and new category survives reload',flush=True);browser.close()
+if __name__=='__main__':run()

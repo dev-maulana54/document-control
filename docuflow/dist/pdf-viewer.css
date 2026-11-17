@@ -1,0 +1,29 @@
+@font-face{font-family:Jakarta;src:url('assets/fonts/plus-jakarta-sans.ttf') format('truetype');font-weight:200 800;font-display:swap}
+:root{font-family:Jakarta,Arial,sans-serif;color:#173250;background:#e6ebf2;font-synthesis:none}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{height:100dvh;margin:0;display:flex;flex-direction:column;overflow:hidden}
+button,a{-webkit-tap-highlight-color:transparent}
+button{font:inherit;cursor:pointer}
+button:focus-visible,a:focus-visible{outline:3px solid #72bcff;outline-offset:3px}
+svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.document-heading{flex:1;min-width:0}
+.document-heading p{font-size:10px;font-weight:650;margin:0 0 4px;color:#275caa;overflow-wrap:anywhere}
+h1{font-size:12px;font-weight:650;line-height:1.6;margin:0;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}
+#viewer-surface{flex:1;position:relative;min-height:0;background:#dfe6ef}
+#pdf-frame{display:block;border:0;width:100%;height:100%;background:#dfe6ef}
+.message{height:100%;display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:32px}
+.message-icon{font-size:14px;font-weight:750;color:#245fd0;background:#f6f9ff;border:1px solid #c5d5ef;border-radius:12px;padding:23px 17px;margin-bottom:10px}
+.message h2{font-size:19px;margin:14px 0 0}.message p{font-size:13px;line-height:1.9;color:#4c617a;max-width:390px}.message a{color:#1b53b2;font-size:13px;padding:12px}
+.floating-controls{position:absolute;bottom:26px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:3px;padding:7px 10px;border:1px solid #4e637e;border-radius:14px;background:#122d4b;color:#fff;box-shadow:0 8px 24px #10243d40;z-index:2}
+.floating-controls button{display:grid;place-items:center;width:40px;height:40px;background:transparent;color:#fff;border:0;border-radius:7px}
+.floating-controls button:hover,.floating-controls button[aria-pressed=true]{background:#304f74}
+.floating-controls button:disabled{color:#90a3ba;cursor:default}
+#zoom-level{font-size:12px;font-variant-numeric:tabular-nums;min-width:55px;text-align:center}
+.control-divider{height:22px;width:1px;background:#49617f;margin:0 7px}
+.control-status{position:absolute;left:50%;bottom:96px;transform:translateX(-50%);background:#fff;color:#173250;border-radius:6px;font-size:12px;padding:10px 14px;max-width:90%;box-shadow:0 2px 8px #10243d20}
+.control-status:empty{display:none}
+footer{display:flex;align-items:center;gap:16px;padding:10px 26px;border-top:1px solid #d8e1ed;background:#f8fafc;font-size:10px;color:#526985;flex-shrink:0}
+.company-name{white-space:nowrap}
+@media(max-width:600px){footer{padding:10px 12px;gap:10px}.company-name{display:none}.floating-controls{bottom:18px;padding:6px;gap:0}.floating-controls button{width:38px;height:40px}.control-divider{margin:0 4px}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}

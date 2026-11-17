@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Preview PDF · Document Control</title>
+  <link rel="icon" href="assets/cbi.png">
+  <link rel="stylesheet" href="pdf-viewer.css">
+  <script src="pdf-viewer.js" defer></script>
+</head>
+<body>
+  <main id="viewer-surface">
+    <div id="viewer-message" class="message" role="status"><div class="message-icon" aria-hidden="true">PDF</div><h2>Menyiapkan dokumen…</h2><p>Preview PDF akan tampil di sini.</p></div>
+    <iframe id="pdf-frame" title="Isi dokumen PDF" hidden></iframe>
+    <div id="viewer-controls" class="floating-controls" role="toolbar" aria-label="Kontrol preview PDF" hidden>
+      <button id="zoom-out" aria-label="Zoom out" title="Zoom out"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+      <output id="zoom-level" aria-live="polite" aria-label="Tingkat zoom">100%</output>
+      <button id="zoom-in" aria-label="Zoom in" title="Zoom in"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5v14"/></svg></button>
+      <span class="control-divider" aria-hidden="true"></span>
+      <button id="fit-page" aria-label="Sesuaikan halaman" title="Sesuaikan halaman"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3H3v4m14-4h4v4M3 17v4h4m14-4v4h-4M8 7h8v10H8z"/></svg></button>
+      <button id="full-view" aria-label="Full view" aria-pressed="false" title="Full view"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg></button>
+    </div>
+    <p id="control-status" class="control-status" role="status"></p>
+  </main>
+  <footer>
+    <div class="document-heading"><p id="document-code" hidden></p><h1 id="document-title">Preview Dokumen</h1></div>
+    <span class="company-name">PT Century Batteries Indonesia</span>
+  </footer>
+</body>
+</html>
