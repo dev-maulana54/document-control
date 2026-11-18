@@ -82,6 +82,7 @@ def run(base):
         expect(page.locator('.workbook-cell[data-cell="J4"]')).to_have_value('Context clear value')
         menu(page,'J4')
         choose_action(page,'Format Cells')
+        page.get_by_role('tab',name='Font',exact=True).click()
         page.locator('#context-font-size').fill('18')
         page.get_by_role('button',name='Terapkan Format',exact=True).click()
         assert page.locator('.workbook-cell[data-cell="J4"]').evaluate('(cell)=>getComputedStyle(cell).fontSize')=='24px'

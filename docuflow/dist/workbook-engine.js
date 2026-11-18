@@ -1,7 +1,12 @@
 'use strict';
 
 const WorkbookEngine = (() => {
-  const elements = (node, name) => [...node.getElementsByTagNameNS('*', name)];
+  const elements = (node, name) => {
+    const root=node.nodeType===9?node.documentElement:node.ownerDocument?.documentElement;
+    // Worksheet extensions can contain drawing coordinates named row/col as well.
+    const namespace=root?.localName==='worksheet'&&['row','col','c'].includes(name)?root.namespaceURI:'*';
+    return [...node.getElementsByTagNameNS(namespace,name)];
+  };
   const child = (node, name) => node && [...node.children].find(element => element.localName === name);
   const text = (node, name) => child(node, name)?.textContent || '';
   const relationshipId = node => [...node.attributes].find(attribute => attribute.localName === 'id' && attribute.namespaceURI)?.value;
@@ -96,7 +101,7 @@ const WorkbookEngine = (() => {
       const alignment = child(xf, 'alignment');
       const enabled=name=>{const n=child(font,name);return Boolean(n)&&!['0','false','none'].includes(n.getAttribute('val'));};
       const pattern=child(fill,'patternFill');
-      const style = { fontSize: Math.max(1, Math.min(409, Number(child(font, 'sz')?.getAttribute('val')) || 11)), fontName: child(font, 'name')?.getAttribute('val') || 'Arial', underline: enabled('u'), wrap: ['1','true'].includes(alignment?.getAttribute('wrapText')), bold: enabled('b'), italic: enabled('i'), color: color(child(font, 'color'), '#000000',palette), background: pattern?.getAttribute('patternType')==='solid'?color(child(pattern,'fgColor'),'',palette):'', horizontal: alignment?.getAttribute('horizontal'), vertical: alignment?.getAttribute('vertical'), numFmt: Number(xf.getAttribute('numFmtId')) || 0, borders: {} };
+      const style = { fontSize: Math.max(1, Math.min(409, Number(child(font, 'sz')?.getAttribute('val')) || 11)), fontName: child(font, 'name')?.getAttribute('val') || 'Arial', underline: enabled('u'), strike: enabled('strike'), wrap: ['1','true'].includes(alignment?.getAttribute('wrapText')), bold: enabled('b'), italic: enabled('i'), color: color(child(font, 'color'), '#000000',palette), background: pattern?.getAttribute('patternType')==='solid'?color(child(pattern,'fgColor'),'',palette):'', horizontal: alignment?.getAttribute('horizontal'), vertical: alignment?.getAttribute('vertical'), numFmt: Number(xf.getAttribute('numFmtId')) || 0, borders: {} };
       for (const side of ['left', 'right', 'top', 'bottom']) {
         const edge = child(border, side);
         if(edge?.hasAttribute('style')&&edge.getAttribute('style')!=='none'){const line=edge.getAttribute('style');style.borders[side]=`${line==='thick'||line==='double'?3:/medium/i.test(line)?2:1}px ${line==='double'?'double':line==='dotted'?'dotted':/dash/i.test(line)?'dashed':'solid'} ${color(child(edge,'color'),'#000000',palette)}`;}
@@ -234,6 +239,10 @@ const WorkbookEngine = (() => {
     return book;
   }
 
+  function inheritedCellStyle(sheet,point,row=elements(sheet.xml,'row').find(node=>Number(node.getAttribute('r'))===point.row)) {
+    return row?.getAttribute('s')??elements(sheet.xml,'col').findLast(col=>Number(col.getAttribute('min'))<=point.column&&Number(col.getAttribute('max'))>=point.column)?.getAttribute('style');
+  }
+
   function ensureCell(sheet, reference) {
     if (sheet.cells.has(reference)) return sheet.cells.get(reference);
     const point = XlsxPackage.position(reference);
@@ -244,7 +253,7 @@ const WorkbookEngine = (() => {
       let row = [...data.children].find(row => Number(row.getAttribute('r')) === point.row);
       if (!row) { row = create('row'); row.setAttribute('r', point.row); data.insertBefore(row, [...data.children].find(row => Number(row.getAttribute('r')) > point.row) || null); }
       const cell = create('c'); cell.setAttribute('r', reference);
-      const inherited=row.getAttribute('s')??elements(sheet.xml,'col').findLast(col=>Number(col.getAttribute('min'))<=point.column&&Number(col.getAttribute('max'))>=point.column)?.getAttribute('style');
+      const inherited=inheritedCellStyle(sheet,point,row);
       if(inherited!==null&&inherited!==undefined)cell.setAttribute('s',inherited);
       row.insertBefore(cell, [...row.children].find(cell => XlsxPackage.position(cell.getAttribute('r')).column > point.column) || null);
       sheet.cells.set(reference, cell);
@@ -259,6 +268,12 @@ const WorkbookEngine = (() => {
     let cell = sheet.cells.get(reference);
     if (cell && child(cell, 'f')) throw new Error('Sel rumus dipertahankan dari template dan tidak dapat diubah.');
     const parsed = XlsxPackage.inputValue(value);
+    // Excel's Text format keeps subsequently typed digits as text, including
+    // when the format comes from a row or column default.
+    if(parsed.type==='n'){
+      const styleId=cell?.getAttribute('s')??inheritedCellStyle(sheet,point);
+      if(book.styles[Number(styleId)||0]?.numFmt===49)parsed.type='inlineStr';
+    }
     if (cellValue(book, cell) === parsed.value) return false;
     const create = name => sheet.xml.createElementNS(sheet.xml.documentElement.namespaceURI, name);
     cell = ensureCell(sheet, reference);

@@ -19,8 +19,8 @@ def qa(page):
 
 def submit(page,request_id):
     page.goto(BASE+'#request-'+request_id)
-    page.locator('[name="approverIds"][value="u-admin"]').check()
-    page.locator('[name="approverIds"][value="u-qa"]').check()
+    fixture.select_approver(page,'u-admin')
+    fixture.select_approver(page,'u-qa')
     page.get_by_role('button',name='Ajukan Persetujuan',exact=True).click()
     expect(page.locator('.request-summary .request-status')).to_have_text('Menunggu persetujuan')
 

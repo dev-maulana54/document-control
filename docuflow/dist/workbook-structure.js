@@ -100,16 +100,16 @@ const WorkbookStructure=(()=>{
     for(const [reference,cell] of cells){const p=R.parse(reference);if(p[axis]<start||p[axis]>end)continue;if(E.child(cell,'f'))removed=true;for(const child of [...cell.children])if(['v','is','f'].includes(child.localName))child.remove();for(const attr of ['t','cm','vm','ph'])cell.removeAttribute(attr);}
     sheet.xml=xml;sheet.cells=cells;if(removed)book.formulasRemoved=true;book.modified.add(index);
   }
-  function formatAxis(book,index,axis,start,end,properties){
+  function formatAxis(book,index,axis,start,end,properties,borderOptions={color:'#64748b'}){
     if(axis==='row'&&end-start+1>10000)throw new Error('Pilih maksimal 10.000 baris per perubahan format.');
     const sheet=book.sheets[index],borderAddress=axis==='column'?XlsxPackage.address(start,1)+':'+XlsxPackage.address(end,sheet.rows):XlsxPackage.address(1,start)+':'+XlsxPackage.address(sheet.columns,end);
     if(properties.borders!==undefined)WorkbookFormat.references(WorkbookFormat.range(sheet,borderAddress));
-    const cache=new Map(),style=(old)=>{old=Number(old)||0;if(cache.has(old))return cache.get(old);const xml=E.parseXml(`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" s="${old}"/></row></sheetData></worksheet>`),temp={xml,rows:1,columns:1,cells:new Map(),images:[],merges:[]};temp.cells.set('A1',E.elements(xml,'c')[0]);const position=book.sheets.length;book.sheets.push(temp);try{for(const [property,value] of Object.entries(properties))WorkbookFormat.format(book,position,'A1',property,value);const result=Number(temp.cells.get('A1').getAttribute('s'))||0;cache.set(old,result);return result;}finally{book.sheets.pop();book.modified.delete(position);}};
+    const cache=new Map(),style=(old)=>{old=Number(old)||0;if(cache.has(old))return cache.get(old);const xml=E.parseXml(`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" s="${old}"/></row></sheetData></worksheet>`),temp={xml,rows:1,columns:1,cells:new Map(),images:[],merges:[]};temp.cells.set('A1',E.elements(xml,'c')[0]);const position=book.sheets.length;book.sheets.push(temp);try{for(const [property,value] of Object.entries(properties))if(property==='borders')WorkbookBorders.apply(book,position,'A1',value,borderOptions);else WorkbookFormat.format(book,position,'A1',property,value);const result=Number(temp.cells.get('A1').getAttribute('s'))||0;cache.set(old,result);return result;}finally{book.sheets.pop();book.modified.delete(position);}};
     style(0);
     for(const [reference,cell] of sheet.cells){const p=R.parse(reference);if(p[axis]>=start&&p[axis]<=end)cell.setAttribute('s',style(cell.getAttribute('s')||defaultStyle(sheet,p.row,p.column)));}
     if(axis==='column')editColumns(sheet.xml,start,end,col=>col.setAttribute('style',style(col.getAttribute('style'))));
     else {const data=E.elements(sheet.xml,'sheetData')[0];for(let n=start;n<=end;n++){let row=E.elements(sheet.xml,'row').find(row=>Number(row.getAttribute('r'))===n);if(!row){row=node(sheet.xml,'row');row.setAttribute('r',n);data.insertBefore(row,[...data.children].find(r=>Number(r.getAttribute('r'))>n)||null);}row.setAttribute('s',style(row.getAttribute('s')));row.setAttribute('customFormat','1');}}
-    if(properties.borders!==undefined)WorkbookBorders.apply(book,index,borderAddress,properties.borders,{color:'#64748b'});
+    if(properties.borders!==undefined)WorkbookBorders.apply(book,index,borderAddress,properties.borders,borderOptions);
     book.modified.add(index);
   }
   function defaultStyle(sheet,row,column){const r=E.elements(sheet.xml,'row').find(n=>Number(n.getAttribute('r'))===row);if(r?.hasAttribute('s'))return Number(r.getAttribute('s'));const c=E.elements(sheet.xml,'col').findLast(n=>Number(n.getAttribute('min'))<=column&&Number(n.getAttribute('max'))>=column);return Number(c?.getAttribute('style')||0);}

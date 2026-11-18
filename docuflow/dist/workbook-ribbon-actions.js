@@ -163,7 +163,7 @@ document.addEventListener('keydown', event => {
     event.preventDefault();
     const targetMerge = sheet.merges.find(merge => row >= merge.first.row && row <= merge.last.row && column >= merge.first.column && column <= merge.last.column);
     const reference = targetMerge?.start || XlsxPackage.address(column, row);
-    state.range = reference; state.anchor = reference; selectWorkbookCell(reference); ensureWorkbookCellVisible(reference);
+    state.range = workbookMergedSelection(targetMerge,reference); state.anchor = reference; selectWorkbookCell(reference); ensureWorkbookCellVisible(reference);
     document.querySelector(`.workbook-cell[data-cell="${reference}"]`)?.focus({ preventScroll: true });
     return;
   }

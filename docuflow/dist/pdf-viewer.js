@@ -51,9 +51,11 @@ function receivePdf(event) {
   window.opener = null;
   try {
     const attachment = event.data.attachment;
-    if (!attachment || !/\.pdf$/i.test(attachment.name) || typeof attachment.data !== 'string' || attachment.data.length > 2.8 * 1024 * 1024 || !/^data:[^,]{0,100};base64,/.test(attachment.data)) throw new Error('File PDF tidak valid. Buka kembali melalui tombol View di aplikasi.');
-    const bytes = Uint8Array.from(atob(attachment.data.split(',')[1]), character => character.charCodeAt(0));
-    if (bytes.length > 2 * 1024 * 1024 || new TextDecoder().decode(bytes.slice(0, 5)) !== '%PDF-') throw new Error('File PDF tidak valid atau melebihi 2 MB.');
+    if (!attachment || !/\.pdf$/i.test(attachment.name)) throw new Error('File PDF tidak valid. Buka kembali melalui tombol View di aplikasi.');
+    let bytes;
+    if(attachment.bytes instanceof ArrayBuffer)bytes=new Uint8Array(attachment.bytes);
+    else {if(typeof attachment.data!=='string'||attachment.data.length>7*1024*1024||!/^data:[^,]{0,100};base64,/.test(attachment.data))throw new Error('File PDF tidak valid. Buka kembali melalui tombol View di aplikasi.');bytes=Uint8Array.from(atob(attachment.data.split(',')[1]),character=>character.charCodeAt(0));}
+    if (bytes.length > 5 * 1024 * 1024 || new TextDecoder().decode(bytes.slice(0, 5)) !== '%PDF-') throw new Error('File PDF tidak valid atau melebihi 5 MB.');
     pdfBlob = new Blob([bytes], { type: 'application/pdf' });
     const metadata = event.data.metadata || {};
     const title = document.getElementById('document-title');

@@ -1,7 +1,7 @@
 'use strict';
 async function importWorkbook(file) {
   if(!/\.(xlsx|xltx|xlsm|xltm|xls|xlt|xlsb)$/i.test(file.name))throw new Error('Pilih XLSX, XLTX, XLSM, XLTM, XLS, XLT atau XLSB.');
-  if(!file.size||file.size>XlsxPackage.limits.file)throw new Error('Ukuran template maksimal 2 MB.');
+  if(!file.size||file.size>XlsxPackage.limits.file)throw new Error('Ukuran template maksimal 5 MB.');
   const input=await file.arrayBuffer(),ext=file.name.split('.').pop().toLowerCase();
   if(ext==='xlsx')return input;
   async function checkedZip(){XlsxPackage.inspectArchive(input,true);const zip=await JSZip.loadAsync(input);let total=0;for(const entry of Object.values(zip.files)){if(entry.dir)continue;total+=(await WorkbookEngine.readPart(zip,entry.name)).length;if(total>XlsxPackage.limits.expanded)throw new Error('Ukuran terurai template terlalu besar.');}return zip;}

@@ -10,9 +10,6 @@ function paintWorkbookPictureSelection(){
   frame.style.transform=node.style.transform;frame.style.zIndex=node.style.transform?'29':'';
   const {x,y}=activeWorkbook.gridLayout,zoom=(activeWorkbook.view?.zoom||100)/100;
   for(const handle of frame.querySelectorAll('[data-picture-resize]')){const direction=handle.dataset.pictureResize;if(direction.includes('w'))handle.style.left=parseFloat(node.style.left)-grid.scrollLeft<=x[0]+1?5/zoom+'px':'';if(direction.includes('n'))handle.style.top=parseFloat(node.style.top)-grid.scrollTop<=y[0]+1?5/zoom+'px':'';}
-  let actions=frame.querySelector('.shape-object-actions');
-  if(node.classList.contains('workbook-shape')){if(!actions){actions=document.createElement('div');actions.className='shape-object-actions';actions.innerHTML='<button type="button" data-shape-action="edit">Edit Bentuk</button><button type="button" data-shape-action="delete">Hapus</button>';frame.appendChild(actions);}actions.style.top=parseFloat(node.style.top)<38?'calc(100% + 8px)':'-34px';}else actions?.remove();
-
 }
 document.addEventListener('pointerdown',event=>{
   const handle=event.target.closest('[data-picture-resize]');
@@ -35,7 +32,7 @@ document.addEventListener('pointerdown',event=>{
       left=direction.includes('w')?Math.max(x[0],start.left+start.width-width):start.left;top=direction.includes('n')?Math.max(y[0],start.top+start.height-height):start.top;
       if(proportional&&direction.length===1){if(direction==='e'||direction==='w')top=Math.max(y[0],start.top+(start.height-height)/2);else left=Math.max(x[0],start.left+(start.width-width)/2);}
     }
-    Object.assign(node.style,{left:left+'px',top:top+'px',width:width+'px',height:height+'px'});paintWorkbookPictureSelection();
+    Object.assign(node.style,{left:left+'px',top:top+'px',width:width+'px',height:height+'px'});if(image.kind==='shape'){WorkbookShapes.resizeSvg(node.querySelector('svg'),image.id,width,height,image.lineWidth);resizeWorkbookShapeText(node,width,height);}paintWorkbookPictureSelection();
   };
   const finish=e=>{
     capture.removeEventListener('pointermove',move);capture.removeEventListener('pointerup',finish);capture.removeEventListener('pointercancel',finish);

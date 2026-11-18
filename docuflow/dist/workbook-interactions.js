@@ -13,8 +13,10 @@ function layoutWorkbookViewport(repaint=true) {
   const setStyle=(node,key,value)=>{if(node.style[key]!==String(value))node.style[key]=value;};
   setStyle(workspace,'height',px(window.innerHeight/scale));setStyle(workspace,'width',px(window.innerWidth/scale));if(workspace.scrollLeft)workspace.scrollLeft=0;
   const other=[heading,editor.querySelector('.excel-ribbon'),editor.querySelector('.workbook-formula-bar'),editor.querySelector('.workbook-bottom-bar')].reduce((sum,node)=>sum+(node&&!node.hidden?node.getBoundingClientRect().height/scale:0),0);
+  const workspaceStyle=getComputedStyle(workspace),panelStyle=getComputedStyle(editor),pixels=value=>parseFloat(value)||0;
+  const spacing=pixels(workspaceStyle.paddingTop)+pixels(workspaceStyle.paddingBottom)+pixels(workspaceStyle.rowGap)*Math.max(0,workspace.children.length-1)+pixels(panelStyle.borderTopWidth)+pixels(panelStyle.borderBottomWidth);
   setStyle(grid,'zoom',zoom);setStyle(grid,'width','100%');if(grid.style.getPropertyValue('--sheet-zoom')!==String(zoom))grid.style.setProperty('--sheet-zoom',zoom);setStyle(grid,'minHeight',px(120/zoom));
-  setStyle(grid,'height',px(Math.max(120,window.innerHeight/scale-other-40)/zoom));
+  setStyle(grid,'height',px(Math.max(120,window.innerHeight/scale-other-spacing)/zoom));
   if(repaint!==false){let actualZoom=1;for(let node=grid;node;node=node.parentElement)actualZoom*=Number(getComputedStyle(node).zoom)||1;if(activeWorkbook.gridLayout&&Math.abs(actualZoom-activeWorkbook.gridLayout.zoom)>.0001)renderWorkbookGrid(activeWorkbook,Boolean(workbookDocument(true)),grid);else activeWorkbook.renderViewport?.();}
 }
 function syncWorkbookRibbon() {
@@ -75,7 +77,8 @@ function moveWorkbookCell(dx,dy){
   if(row<1||row>sheet.rows)row=point.row;
   if(column<1||column>sheet.columns)column=point.column;
   const target=sheet.merges.find(m=>row>=m.first.row&&row<=m.last.row&&column>=m.first.column&&column<=m.last.column);
-  state.editingCell=null;state.historyGroup=null;state.selectedPicture=null;state.range=target?.start||XlsxPackage.address(column,row);state.anchor=state.range;selectWorkbookCell(state.range);ensureWorkbookCellVisible(state.selected);restoreWorkbookFocus();paintWorkbookPictureSelection();
+  const reference=target?.start||XlsxPackage.address(column,row);
+  state.editingCell=null;state.historyGroup=null;state.selectedPicture=null;state.range=workbookMergedSelection(target,reference);state.anchor=reference;selectWorkbookCell(reference);ensureWorkbookCellVisible(state.selected);restoreWorkbookFocus();paintWorkbookPictureSelection();
 }
 document.addEventListener('keydown',event=>{
   const cell=event.target.closest('.workbook-cell');if(!cell||!workbookDocument()||event.ctrlKey||event.metaKey||event.isComposing)return;

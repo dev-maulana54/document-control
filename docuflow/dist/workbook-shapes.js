@@ -58,7 +58,19 @@
   add(stars,'ribbon','Ribbon',path('M3 25H20V3H80V25H97L85 50 97 75H80V97H20V75H3L15 50ZM20 25V75M80 25V75'));
   add(stars,'wave','Wave',path('M3 20Q25 3 50 20T97 20V80Q75 97 50 80T3 80Z'));
   const get=id=>items.find(item=>item.id===id);
-  function svg(id){const item=get(id);if(!item)throw new Error('Bentuk tidak valid.');return `<svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><g fill="${item.line?'none':'currentColor'}" fill-opacity=".12" stroke="currentColor" stroke-width="2" fill-rule="evenodd" stroke-linejoin="round">${item.markup}</g></svg>`;}
+  function sizedGeometry(id,width,height,lineWidth=2){
+    if(!['ellipse','roundRect','flowChartAlternateProcess','flowChartTerminator'].includes(id)||!Number.isFinite(width)||!Number.isFinite(height)||width<=0||height<=0)return null;
+    // Use worksheet pixel units so rounded corners stay circular when the
+    // object is stretched. Keep the entire outline inside its resize handles.
+    const inset=Math.min(Math.max(0,Number(lineWidth)||0)/2,width/2,height/2),w=width-2*inset,h=height-2*inset;
+    const tag=id==='ellipse'?'ellipse':'rect',radius=Math.min(w,h)*(id==='flowChartTerminator'?.5:1/6);
+    return {viewBox:`0 0 ${width} ${height}`,tag,attrs:tag==='ellipse'?{cx:width/2,cy:height/2,rx:w/2,ry:h/2}:{x:inset,y:inset,width:w,height:h,rx:radius,ry:radius}};
+  }
+  function resizeSvg(svg,id,width,height,lineWidth=2){
+    const geometry=sizedGeometry(id,width,height,lineWidth),element=geometry&&svg?.querySelector(geometry.tag);if(!element)return;
+    svg.setAttribute('viewBox',geometry.viewBox);for(const [name,value] of Object.entries(geometry.attrs))element.setAttribute(name,String(value));
+  }
+  function svg(id,shape){const item=get(id);if(!item)throw new Error('Bentuk tidak valid.');const geometry=shape&&sizedGeometry(id,shape.width,shape.height,shape.lineWidth),markup=geometry?`<${geometry.tag} ${Object.entries(geometry.attrs).map(([name,value])=>`${name}="${value}"`).join(' ')}/>`:item.markup;return `<svg viewBox="${geometry?.viewBox||'0 0 100 100'}" preserveAspectRatio="none" aria-hidden="true"><g fill="${item.line?'none':'currentColor'}" fill-opacity=".12" stroke="currentColor" stroke-width="2" fill-rule="evenodd" stroke-linejoin="round">${markup}</g></svg>`;}
   function validate(shape){
     if(!get(shape.id)||typeof shape.text!=='string'||shape.text.length>1000||/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ud800-\udfff\ufffe\uffff]/u.test(shape.text))throw new Error('Bentuk atau teks tidak valid (maksimal 1.000 karakter).');
     if(!['fill','stroke','textColor'].every(key=>/^#[0-9a-f]{6}$/i.test(shape[key]))||!Number.isFinite(shape.lineWidth)||shape.lineWidth<1||shape.lineWidth>12||!Number.isFinite(shape.fontSize)||shape.fontSize<1||shape.fontSize>409)throw new Error('Warna atau ukuran bentuk tidak valid.');
@@ -105,5 +117,5 @@
   }
   function isTextBox(anchor){return ['1','true'].includes(WorkbookEngine.elements(anchor,'cNvSpPr')[0]?.getAttribute('txBox'));}
   function removeOutline(anchor){const properties=WorkbookEngine.child(WorkbookEngine.child(anchor,'sp'),'spPr');if(!properties)return;let line=WorkbookEngine.child(properties,'ln');if(!line){line=anchor.ownerDocument.createElementNS(ns.a,'a:ln');properties.insertBefore(line,[...properties.children].find(n=>['effectLst','effectDag','scene3d','sp3d','extLst'].includes(n.localName))||null);}for(const child of [...line.children])if(['solidFill','gradFill','pattFill','noFill'].includes(child.localName))child.remove();line.insertBefore(anchor.ownerDocument.createElementNS(ns.a,'a:noFill'),line.firstChild);}
-  const api={isTextBox,removeOutline,items,get,svg,validate,anchor,applyProperties,read};if(typeof module==='object'&&module.exports)module.exports=api;else root.WorkbookShapes=api;
+  const api={isTextBox,removeOutline,items,get,svg,resizeSvg,validate,anchor,applyProperties,read};if(typeof module==='object'&&module.exports)module.exports=api;else root.WorkbookShapes=api;
 })(globalThis);

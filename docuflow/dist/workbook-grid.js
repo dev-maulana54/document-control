@@ -1,9 +1,22 @@
 ﻿'use strict';
 
+// Lay text out at its native font size, then scale the finished text layer.
+// CSS zoom alone rounds font metrics and can change wrapping at small zooms.
+function workbookTextLayer(content,width,height,zoom){
+  const layer=document.createElement('div');layer.className='workbook-text-layer';
+  Object.assign(layer.style,{position:'absolute',left:'0px',top:'0px',width:Math.max(0,width)+'px',height:Math.max(0,height)+'px',zoom:1/zoom,transform:`scale(${zoom})`,transformOrigin:'0 0'});
+  layer.appendChild(content);return layer;
+}
+function reconcileWorkbookChildren(parent,nodes){
+  const keep=new Set(nodes);for(const child of [...parent.children])if(!keep.has(child))child.remove();
+  let previous=null;for(const node of nodes){const next=previous?previous.nextSibling:parent.firstChild;if(node!==next)parent.insertBefore(node,next);previous=node;}
+}
+
 // Render both axes around the viewport, keeping the full sheet scrollable.
 function renderWorkbookGrid(state, writable, grid) {
   const sheetIndex = state.sheetIndex, sheet = state.book.sheets[sheetIndex];
-  const captureFocus=()=>document.activeElement?.matches('.workbook-cell')?{reference:document.activeElement.dataset.cell,start:document.activeElement.selectionStart,end:document.activeElement.selectionEnd,editing:state.editingCell===document.activeElement.dataset.cell,original:state.editingOriginal,historyGroup:state.historyGroup}:null;
+  // A history action or sheet switch may already have selected a different cell.
+  const captureFocus=()=>document.activeElement?.matches('.workbook-cell')&&document.activeElement.dataset.cell===state.selected?{reference:document.activeElement.dataset.cell,start:document.activeElement.selectionStart,end:document.activeElement.selectionEnd,editing:state.editingCell===document.activeElement.dataset.cell,original:state.editingOriginal,historyGroup:state.historyGroup}:null;
   let initialFocus=captureFocus();
   const scroll = { top: grid.scrollTop, left: grid.scrollLeft };
   grid.replaceChildren();
@@ -23,6 +36,9 @@ function renderWorkbookGrid(state, writable, grid) {
   // Browser table layout rounds each cell to layout subpixels, including CSS zoom.
   // Quantize before summing so hundreds of fractional sizes do not accumulate drift.
   let zoom=1;for(let ancestor=grid;ancestor;ancestor=ancestor.parentElement)zoom*=Number(getComputedStyle(ancestor).zoom)||1;
+  // Chromium rounds a CSS border up to one physical pixel at small zooms.
+  // Reserve that actual size in cells and headers to prevent row-height drift.
+  const gridBorder=Math.max(1,1/zoom);
   // Native scroll limits apply after CSS/sheet zoom on both axes.
   for(const sizes of [widths,heights]){const total=sizes.reduce((sum,n)=>sum+n,0),limit=30000000/zoom;if(total>limit){const factor=limit/total;for(let i=0;i<sizes.length;i++)sizes[i]*=factor;}}
   const layoutSize=value=>Math.floor(value*zoom*64+1e-7)/(zoom*64);
@@ -44,28 +60,34 @@ function renderWorkbookGrid(state, writable, grid) {
     const left = (x[image.column] ?? x[0]) + image.x, top = (y[image.row] ?? y[0]) + image.y;
     const imageWidth=!image.fixedSize&&image.toColumn !== null ? (x[image.toColumn] ?? left + image.width) + image.toX - left : image.width,imageHeight=!image.fixedSize&&image.toRow !== null ? (y[image.toRow] ?? top + image.height) + image.toY - top : image.height;
     if(imageWidth<=0||imageHeight<=0)continue;
-    node.style.left = left + 'px'; node.style.top = top + 'px'; node.style.width = imageWidth + 'px'; node.style.height = imageHeight + 'px'; canvas.appendChild(node);
+    node.style.left = left + 'px'; node.style.top = top + 'px'; node.style.width = imageWidth + 'px'; node.style.height = imageHeight + 'px';
+    if(image.kind==='shape'){WorkbookShapes.resizeSvg(node.querySelector('svg'),image.id,imageWidth,imageHeight,image.lineWidth);resizeWorkbookShapeText(node,imageWidth,imageHeight);}
+    canvas.appendChild(node);
     node.dataset.paneColumn=image.column+1;node.dataset.paneRow=image.row+1;
   }
   grid.appendChild(canvas);
-  let renderedRange = '', pending = false;
+  let renderedWindow = null, pending = false, renderedColumnsKey=null,rowCache=new Map(),renderedWidth=0,renderedHeight=0;
   const itemAt = (edges, offset) => { const index = edges.findIndex(end => end > offset); return index < 0 ? edges.length - 1 : Math.max(1, index); };
   function gapCell(tag, width) {
     const cell = document.createElement(tag); cell.className = 'workbook-column-gap'; cell.setAttribute('aria-hidden', 'true'); cell.style.width = width + 'px'; return cell;
   }
   function renderViewport() {
     if (!canvas.isConnected || activeWorkbook !== state || state.sheetIndex !== sheetIndex) return;
-    const firstRow = Math.max(freeze.rows+1, itemAt(y, grid.scrollTop+y[freeze.rows]) - 10), lastRow = Math.min(sheet.rows, Math.max(firstRow + 49, itemAt(y, grid.scrollTop + grid.clientHeight) + 10));
-    const firstCol = Math.max(freeze.columns+1, itemAt(x, grid.scrollLeft + x[freeze.columns]) - 3), lastCol = Math.min(sheet.columns, Math.max(firstCol + 25, itemAt(x, grid.scrollLeft + grid.clientWidth) + 3));
-    const nextRange = [firstRow, lastRow, firstCol, lastCol].join(':');
-    if (renderedRange === nextRange) return;
-    renderedRange = nextRange;Object.assign(state.gridLayout,{firstRow,lastRow,firstCol,lastCol});
+    const viewport={firstRow:Math.max(freeze.rows+1,itemAt(y,grid.scrollTop+y[freeze.rows])),lastRow:Math.min(sheet.rows,itemAt(y,grid.scrollTop+grid.clientHeight)),firstCol:Math.max(freeze.columns+1,itemAt(x,grid.scrollLeft+x[freeze.columns])),lastCol:Math.min(sheet.columns,itemAt(x,grid.scrollLeft+grid.clientWidth))};
+    // Keep the existing cells while the viewport is inside its buffer. Native
+    // scrolling then needs no DOM work for each individual row or pixel.
+    if(renderedWindow&&renderedWidth===grid.clientWidth&&renderedHeight===grid.clientHeight&&viewport.firstRow>=renderedWindow.firstRow&&viewport.lastRow<=renderedWindow.lastRow&&viewport.firstCol>=renderedWindow.firstCol&&viewport.lastCol<=renderedWindow.lastCol)return;
+    const firstRow=Math.max(freeze.rows+1,viewport.firstRow-10),lastRow=Math.min(sheet.rows,Math.max(firstRow+49,viewport.lastRow+10));
+    const firstCol=Math.max(freeze.columns+1,viewport.firstCol-5),lastCol=Math.min(sheet.columns,Math.max(firstCol+25,viewport.lastCol+5));
+    renderedWindow={firstRow,lastRow,firstCol,lastCol};renderedWidth=grid.clientWidth;renderedHeight=grid.clientHeight;Object.assign(state.gridLayout,renderedWindow);
     const focused = captureFocus()||initialFocus;initialFocus=null;
     const frozenRows=Array.from({length:Math.min(freeze.rows,itemAt(y,grid.clientHeight)+1)},(_,i)=>i+1).filter(n=>heights[n-1]>0),frozenCols=Array.from({length:Math.min(freeze.columns,itemAt(x,grid.clientWidth)+1)},(_,i)=>i+1).filter(n=>widths[n-1]>0);
     const leftGap = x[firstCol - 1] - x[frozenCols.at(-1)||0], rightGap = x[sheet.columns] - x[lastCol];
     const visibleRows=[...frozenRows,...Array.from({length:Math.max(0,lastRow-firstRow+1)},(_,i)=>firstRow+i).filter(n=>heights[n-1]>0)],visibleCols=[...frozenCols,...Array.from({length:Math.max(0,lastCol-firstCol+1)},(_,i)=>firstCol+i).filter(n=>widths[n-1]>0)];
     state.gridLayout.visibleRows=visibleRows;
     const renderedColumns = 1 + visibleCols.length + (leftGap ? 1 : 0) + (rightGap ? 1 : 0);
+    const columnsKey=visibleCols.join(':'),sameColumns=renderedColumnsKey===columnsKey;renderedColumnsKey=columnsKey;
+    if(!sameColumns){
     columns.replaceChildren();
     for (const width of [x[0],...frozenCols.map(n=>widths[n-1]), ...(leftGap ? [leftGap] : []), ...visibleCols.filter(n=>n>freeze.columns).map(n=>widths[n-1]), ...(rightGap ? [rightGap] : [])]) {
       const column = document.createElement('col'); column.style.width = width + 'px'; columns.appendChild(column);
@@ -78,24 +100,35 @@ function renderWorkbookGrid(state, writable, grid) {
     }
     if (rightGap) header.appendChild(gapCell('th', rightGap));
     head.replaceChildren(header);
+    }
     // Materialize merge coverage only inside the current window.
-    const merges = new Map();
-    for(const merge of sheet.merges)for(const row of visibleRows){if(row<merge.first.row||row>merge.last.row)continue;for(const column of visibleCols)if(column>=merge.first.column&&column<=merge.last.column)merges.set((row-1)*sheet.columns+column,merge);}
-    const fragment = document.createDocumentFragment();
-    const borderEdges=[];
+    const merges = new Map(),mergeKeys=new Map(),rowMergeKeys=new Map();
+    for(const merge of sheet.merges){const rows=visibleRows.filter(row=>row>=merge.first.row&&row<=merge.last.row),cols=visibleCols.filter(column=>column>=merge.first.column&&column<=merge.last.column);if(!rows.length||!cols.length)continue;
+      const key=[merge.start,rows[0],rows.at(-1),cols[0],cols.at(-1)].join(':');mergeKeys.set(merge,key);
+      for(const row of rows){rowMergeKeys.set(row,(rowMergeKeys.get(row)||'')+key+';');for(const column of cols)merges.set((row-1)*sheet.columns+column,merge);}
+    }
+    const rowNodes = [];
+    const borderEdges=[],nextRowCache=new Map();
     function spacer(height) {
       const row = document.createElement('tr'), cell = document.createElement('td');
       row.className = 'workbook-spacer'; row.setAttribute('aria-hidden', 'true'); cell.colSpan = renderedColumns; cell.style.height = height + 'px'; row.appendChild(cell); return row;
     }
     for (const row of visibleRows) {
-      if(row===visibleRows.find(n=>n>freeze.rows)&&firstRow>freeze.rows+1)fragment.appendChild(spacer(y[firstRow-1]-y[frozenRows.at(-1)||0]));
-      const line = document.createElement('tr'); line.style.height = heights[row - 1] + 'px'; line.setAttribute('aria-rowindex', row + 1);
-      const label = document.createElement('th'); label.scope = 'row'; label.dataset.row = row;const rowNumber=document.createElement('div');rowNumber.className='workbook-row-number';rowNumber.style.height=Math.max(0,heights[row-1]-1)+'px';rowNumber.style.lineHeight=Math.min(14/sheetZoom,Math.max(0,heights[row-1]-1))+'px';rowNumber.textContent=row;label.appendChild(rowNumber);if(writable){const edge=document.createElement('span');edge.className='workbook-row-resizer';edge.dataset.resizeRow=row;edge.title='Geser untuk mengubah tinggi baris';edge.setAttribute('aria-label','Ubah tinggi baris '+row);label.appendChild(edge);} line.appendChild(label);
+      if(row===visibleRows.find(n=>n>freeze.rows)&&firstRow>freeze.rows+1)rowNodes.push(spacer(y[firstRow-1]-y[frozenRows.at(-1)||0]));
+      const cachedRow=rowCache.get(row),mergeKey=rowMergeKeys.get(row)||'';
+      if(sameColumns&&cachedRow?.mergeKey===mergeKey){rowNodes.push(cachedRow.node);borderEdges.push(...cachedRow.edges);nextRowCache.set(row,cachedRow);continue;}
+      const cells=new Map(),rowEdgeStart=borderEdges.length;
+      const line = cachedRow?.node||document.createElement('tr'); line.style.height = heights[row - 1] + 'px'; line.setAttribute('aria-rowindex', row + 1);
+      let label=cachedRow?.node.firstElementChild;
+      if(!label){label=document.createElement('th');label.scope = 'row'; label.dataset.row = row;const rowNumber=document.createElement('div');rowNumber.className='workbook-row-number';rowNumber.style.height=Math.max(0,heights[row-1]-gridBorder)+'px';rowNumber.style.lineHeight=Math.min(14/sheetZoom,Math.max(0,heights[row-1]-gridBorder))+'px';rowNumber.textContent=row;label.appendChild(rowNumber);if(writable){const edge=document.createElement('span');edge.className='workbook-row-resizer';edge.dataset.resizeRow=row;edge.title='Geser untuk mengubah tinggi baris';edge.setAttribute('aria-label','Ubah tinggi baris '+row);label.appendChild(edge);}}
+      const rowChildren=[label];
       if(row<=freeze.rows){label.style.top=y[row-1]+'px';label.classList.add('is-frozen-row');}
       for (const column of visibleCols) {
-        if(leftGap&&column===visibleCols.find(n=>n>freeze.columns))line.appendChild(gapCell('td',leftGap));
+        if(leftGap&&column===visibleCols.find(n=>n>freeze.columns))rowChildren.push(gapCell('td',leftGap));
         let reference = XlsxPackage.address(column, row), height = heights[row - 1],cellWidth=widths[column-1];
-        const merge = merges.get((row - 1) * sheet.columns + column), td = document.createElement('td'); td.setAttribute('aria-colindex', column + 1);
+        const merge = merges.get((row - 1) * sheet.columns + column),cellKey=mergeKeys.get(merge)||'',cachedCell=cachedRow?.cells.get(column);
+        if(cachedCell?.key===cellKey){rowChildren.push(cachedCell.node);borderEdges.push(...cachedCell.edges);cells.set(column,cachedCell);continue;}
+        const td = document.createElement('td'); td.setAttribute('aria-colindex', column + 1);
         if (merge) {
           const mergeRows=visibleRows.filter(n=>n>=merge.first.row&&n<=merge.last.row&&(n<=freeze.rows)===(row<=freeze.rows)),mergeCols=visibleCols.filter(n=>n>=merge.first.column&&n<=merge.last.column&&(n<=freeze.columns)===(column<=freeze.columns)),visibleRow=mergeRows[0],visibleCol=mergeCols[0],bottom=mergeRows.at(-1);
           if (row !== visibleRow || column !== visibleCol) continue;
@@ -105,28 +138,38 @@ function renderWorkbookGrid(state, writable, grid) {
         td.dataset.gridRow=row;td.dataset.gridColumn=column;
         if(row<=freeze.rows||column<=freeze.columns){td.classList.add('is-frozen-cell');td.style.position='sticky';td.style.zIndex=row<=freeze.rows&&column<=freeze.columns?'24':'20';if(!style.background)td.style.backgroundColor='#ffffff';if(row<=freeze.rows)td.style.top=y[row-1]+'px';if(column<=freeze.columns)td.style.left=x[column-1]+'px';}
         if (style.background) {td.style.backgroundColor = style.background;td.style.borderColor='transparent';}
-        const displayBorders={...(style.borders||{})};
-        if(merge)for(const [side,point] of [['right',{row:merge.first.row,column:merge.last.column}],['bottom',{row:merge.last.row,column:merge.first.column}]]){const edgeCell=sheet.cells.get(XlsxPackage.address(point.column,point.row));if(edgeCell?.hasAttribute('s')){const edgeStyle=state.book.styles[Number(edgeCell.getAttribute('s'))]||{};delete displayBorders[side];if(edgeStyle.borders?.[side])displayBorders[side]=edgeStyle.borders[side];}}
-        if(merge){if(row>merge.first.row)delete displayBorders.top;if(column>merge.first.column)delete displayBorders.left;if(row<=freeze.rows&&merge.last.row>freeze.rows)delete displayBorders.bottom;if(column<=freeze.columns&&merge.last.column>freeze.columns)delete displayBorders.right;}
         const bounds={left:x[column-1],top:y[row-1],right:x[column-1]+cellWidth,bottom:y[row-1]+height};
-        for(const [side,border] of Object.entries(displayBorders)){const horizontal=side==='top'||side==='bottom';borderEdges.push({x1:horizontal?bounds.left:bounds[side],x2:horizontal?bounds.right:bounds[side],y1:horizontal?bounds[side]:bounds.top,y2:horizontal?bounds[side]:bounds.bottom,border});}
+        const cellEdgeStart=borderEdges.length;
+        if(merge){
+          // Each portion of a merged edge may have a different native style.
+          for(const side of ['top','bottom','left','right']){
+            const horizontal=side==='top'||side==='bottom',axis=horizontal?'column':'row',first=horizontal?visibleCols:visibleRows;
+            if(side==='top'&&row>merge.first.row||side==='left'&&column>merge.first.column||side==='bottom'&&row<=freeze.rows&&merge.last.row>freeze.rows||side==='right'&&column<=freeze.columns&&merge.last.column>freeze.columns)continue;
+            for(const n of first){if(n<merge.first[axis]||n>merge.last[axis])continue;
+              const ref=horizontal?XlsxPackage.address(n,side==='top'?merge.first.row:merge.last.row):XlsxPackage.address(side==='left'?merge.first.column:merge.last.column,n),part=sheet.cells.get(ref),partStyle=part?.hasAttribute('s')?state.book.styles[Number(part.getAttribute('s'))]:style,border=partStyle?.borders?.[side];
+              if(border)borderEdges.push(horizontal?{x1:x[n-1],x2:x[n],y1:bounds[side],y2:bounds[side],border}:{x1:bounds[side],x2:bounds[side],y1:y[n-1],y2:y[n],border});
+            }
+          }
+        }else for(const [side,border] of Object.entries(style.borders||{})){const horizontal=side==='top'||side==='bottom';borderEdges.push({x1:horizontal?bounds.left:bounds[side],x2:horizontal?bounds.right:bounds[side],y1:horizontal?bounds[side]:bounds.top,y2:horizontal?bounds[side]:bounds.bottom,border});}
         const input = document.createElement('textarea'); input.className = 'workbook-cell'; input.rows = 1; input.maxLength = 4000; input.dataset.cell = reference; input.setAttribute('aria-label', 'Sel ' + reference); input.spellcheck = false;
         input.value = WorkbookFormat.display(state.book, cell); input.readOnly = !writable || Boolean(cell && WorkbookEngine.child(cell, 'f'));
         input.dataset.displayColor=style.color||'#152c49';
-        input.style.height = Math.max(0, height - (parseFloat(td.style.borderTopWidth)||0) - (parseFloat(td.style.borderBottomWidth)||1)) + 'px'; input.style.color = style.color || '#152c49'; input.style.fontSize = (style.fontSize || 11) + 'pt'; input.style.fontWeight = style.bold ? '700' : '400'; input.style.fontStyle = style.italic ? 'italic' : 'normal';
-        input.style.fontFamily = style.fontName || 'Arial'; input.style.textDecoration = style.underline ? 'underline' : 'none'; input.style.whiteSpace = style.wrap ? 'pre-wrap' : 'pre';
+        input.style.height = Math.max(0, height - gridBorder) + 'px'; input.style.color = style.color || '#152c49'; input.style.fontSize = (style.fontSize || 11) + 'pt'; input.style.fontWeight = style.bold ? '700' : '400'; input.style.fontStyle = style.italic ? 'italic' : 'normal';
+        input.style.fontFamily = style.fontName || 'Arial'; input.style.textDecoration = [style.underline?'underline':'',style.strike?'line-through':''].filter(Boolean).join(' ')||'none'; input.style.whiteSpace = style.wrap ? 'pre-wrap' : 'pre';
         if (['left', 'center', 'right'].includes(style.horizontal)) input.style.textAlign = style.horizontal;
         input.style.paddingLeft=input.style.paddingRight=Math.min(4,Math.max(0,(cellWidth-1)/2))+'px';
         if(height<12){input.style.paddingTop='0';input.style.paddingBottom='0';}
         if (input.readOnly) input.title = writable && cell && WorkbookEngine.child(cell, 'f') ? 'Rumus template dipertahankan' : 'Akses baca';
-        if(merge){const clip=document.createElement('div');clip.className='workbook-merged-clip';clip.style.height=Math.max(0,height-1)+'px';const content=document.createElement('div');content.className='workbook-merged-content';content.style.left=x[merge.first.column-1]-x[column-1]+'px';content.style.top=y[merge.first.row-1]-y[row-1]+'px';content.style.width=x[merge.last.column]-x[merge.first.column-1]+'px';const fullHeight=y[merge.last.row]-y[merge.first.row-1];input.style.height=Math.max(0,fullHeight-1)+'px';content.appendChild(input);clip.appendChild(content);td.appendChild(clip);}else td.appendChild(input);line.appendChild(td);
+        if(merge){const clip=document.createElement('div');clip.className='workbook-merged-clip';clip.style.height=Math.max(0,height-gridBorder)+'px';const content=document.createElement('div');content.className='workbook-merged-content';content.style.left=x[merge.first.column-1]-x[column-1]+'px';content.style.top=y[merge.first.row-1]-y[row-1]+'px';const fullWidth=x[merge.last.column]-x[merge.first.column-1];content.style.width=fullWidth+'px';const fullHeight=y[merge.last.row]-y[merge.first.row-1];input.style.height=Math.max(0,fullHeight-gridBorder)+'px';content.appendChild(workbookTextLayer(input,fullWidth,fullHeight-gridBorder,zoom));clip.appendChild(content);td.appendChild(clip);}else td.appendChild(workbookTextLayer(input,cellWidth-gridBorder,height-gridBorder,zoom));rowChildren.push(td);
         if(['center','bottom'].includes(style.vertical)){input.dataset.textAlign=style.vertical;input.dataset.textHeight=parseFloat(input.style.height);}
+        cells.set(column,{node:td,key:cellKey,edges:borderEdges.slice(cellEdgeStart)});
       }
-      if (rightGap) line.appendChild(gapCell('td', rightGap));
-      fragment.appendChild(line);
+      if (rightGap) rowChildren.push(gapCell('td', rightGap));
+      reconcileWorkbookChildren(line,rowChildren);rowNodes.push(line);
+      nextRowCache.set(row,{node:line,mergeKey,cells,edges:borderEdges.slice(rowEdgeStart)});
     }
-    if (lastRow < sheet.rows) fragment.appendChild(spacer(y[sheet.rows] - y[lastRow]));
-    body.replaceChildren(fragment);alignWorkbookCellText(grid); selectWorkbookCell(state.selected); paintWorkbookPictureSelection();
+    if (lastRow < sheet.rows) rowNodes.push(spacer(y[sheet.rows] - y[lastRow]));
+    rowCache=nextRowCache;reconcileWorkbookChildren(body,rowNodes);alignWorkbookCellText(grid); selectWorkbookCell(state.selected); paintWorkbookPictureSelection();
     state.gridLayout.borderEdges=borderEdges;state.gridLayout.borderVersion=(state.gridLayout.borderVersion||0)+1;
     if (focused) {
       const input = grid.querySelector(`.workbook-cell[data-cell="${focused.reference}"]`);
@@ -153,7 +196,7 @@ function ensureWorkbookCellVisible(reference) {
 // newlines puts centered multi-line cells too low and clips their final line.
 function alignWorkbookCellText(grid){
   const entries=[...grid.querySelectorAll('.workbook-cell[data-text-align]')].map(input=>({input,height:Number(input.dataset.textHeight)}));
-  for(const {input} of entries){input.style.paddingTop='0px';input.style.paddingBottom='0px';input.style.height='0px';}
-  const heights=entries.map(({input})=>input.value?input.scrollHeight:0);
-  entries.forEach(({input,height},index)=>{input.style.height=height+'px';input.style.paddingTop=Math.max(0,(height-heights[index])/(input.dataset.textAlign==='center'?2:1))+'px';});
+  const clones=entries.map(({input})=>{const clone=input.cloneNode(false);clone.value=input.value;clone.removeAttribute('id');clone.removeAttribute('data-cell');clone.tabIndex=-1;clone.setAttribute('aria-hidden','true');Object.assign(clone.style,{position:'absolute',height:'0px',paddingTop:'0px',paddingBottom:'0px',visibility:'hidden'});input.parentElement.appendChild(clone);return clone;});
+  const heights=clones.map(clone=>clone.value?clone.scrollHeight:0);clones.forEach(clone=>clone.remove());
+  entries.forEach(({input,height},index)=>{input.style.height=height+'px';input.style.paddingBottom='0px';input.style.paddingTop=Math.max(0,(height-heights[index])/(input.dataset.textAlign==='center'?2:1))+'px';});
 }

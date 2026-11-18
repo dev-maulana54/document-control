@@ -319,7 +319,7 @@ function documentsPage(route) {
 
 const canRequestRevision = doc => doc && doc.entityType !== 'request' && canRead(doc) && doc.status === 'active' && canEdit(doc);
 const canEditDocument = doc => DocumentWorkflow.canEdit(db, currentUser, doc);
-const canDeleteDocument = doc => doc?.entityType !== 'request' && isAdmin() && canRead(doc) && !db.documentRequests.some(request => request.sourceId === doc.id || request.publishedDocumentId === doc.id) && !db.documents.some(d => d.supersedesId === doc.id);
+const canDeleteDocument = doc => doc?.entityType !== 'request' && !doc.requestArchive && isAdmin() && canRead(doc) && !db.documentRequests.some(request => request.sourceId === doc.id || request.publishedDocumentId === doc.id) && !db.documents.some(d => d.supersedesId === doc.id);
 
 function documentTable(rows) {
   const perPage = 8;
@@ -338,7 +338,7 @@ function documentTable(rows) {
       <td class="revision-cell" data-label="Revisi" role="cell">Rev. ${formatRevision(d.revision)}</td>
       <td class="effective-cell" data-label="Tanggal Efektif" role="cell">${d.effectiveDate ? dateLabel(d.effectiveDate) : '—'}</td>
       <td class="actions-cell" data-label="Aksi" role="cell"><div class="row-actions">
-        <button class="table-action" data-action="${d.workbookKey ? 'open-workbook' : isPdfAttachment(d.attachment) ? 'preview-pdf' : 'detail'}" data-id="${esc(d.id)}" aria-label="View ${esc(d.title)}" title="${isPdfAttachment(d.attachment) ? 'Buka PDF di tab baru' : 'Lihat detail dokumen'}">${icon('eye')} View</button>
+        <button class="table-action" data-action="${isPdfAttachment(d.attachment) ? 'preview-pdf' : d.workbookKey ? 'open-workbook' : 'detail'}" data-id="${esc(d.id)}" aria-label="View ${esc(d.title)}" title="${isPdfAttachment(d.attachment) ? 'Buka PDF di tab baru' : 'Lihat detail dokumen'}">${icon('eye')} View</button>
         <button class="table-action edit" data-action="edit-document" data-id="${esc(d.id)}" aria-label="Edit ${esc(d.title)}" ${canRequestRevision(d) ? '' : 'disabled'} title="${canRequestRevision(d) ? 'Ajukan update dokumen' : 'Dokumen ini tidak dapat diedit oleh akun Anda'}">${icon('edit')} Ajukan Update</button>
         ${isAdmin() ? `<button class="table-action delete" data-action="delete-doc" data-id="${esc(d.id)}" aria-label="Delete ${esc(d.title)}" ${canDeleteDocument(d) ? '' : 'disabled'} title="${canDeleteDocument(d) ? 'Hapus dokumen' : 'Izin tidak tersedia atau dokumen masih dirujuk oleh revisi lain'}">${icon('trash')} Delete</button>` : ''}
       </div></td>
@@ -596,17 +596,17 @@ function documentFields(source = null, inModal = false) {
   return `<input type="hidden" name="editId" value="${esc(source?._editId || '')}">
     <div class="form-section document-information"><h2>Informasi Dokumen</h2><p>Lengkapi identitas dan informasi dasar dokumen Anda.</p>
       <div class="form-grid">
-        <div class="field full"><label for="doc-title">Nama dokumen <span>*</span></label><input id="doc-title" name="title" placeholder="Contoh: Instruksi Kerja Proses Assembly" value="${esc(source?.title || '')}" maxlength="140" required></div>
+        <div class="field full"><label for="doc-title">Judul Dokumen <span>*</span></label><input id="doc-title" name="title" placeholder="Contoh: Instruksi Kerja Proses Assembly" value="${esc(source?.title || '')}" maxlength="140" required></div>
+        ${isAdmin() && source?._editId && source.adminReviewRequired && source.status==='admin_review' ? `<div class="field full"><label for="doc-number">Nomor Dokumen <span>*</span></label><input id="doc-number" name="documentNumber" maxlength="100" value="${esc(source.adminNumberSet || source.sourceId ? source.code : '')}" placeholder="Masukkan nomor dokumen" required></div>` : ''}
         <div class="field"><label for="doc-type">Jenis dokumen <span>*</span></label><select name="type" id="doc-type" required ${source && (!source._editId || source.entityType === 'request') ? 'disabled' : ''}>${typeOptions(source?.type)}</select>${source && (!source._editId || source.entityType === 'request') ? `<input name="type" type="hidden" value="${esc(source.type)}">` : ''}</div>
-        <div class="field"><label for="doc-category">Kategori dokumen <span>*</span></label><select name="categoryId" id="doc-category" required ${source && (!source._editId || source.entityType === 'request') ? 'disabled' : ''}><option value="">Pilih kategori dokumen</option>${assignableCategories().map(category => `<option value="${esc(category.id)}" ${source?.categoryId === category.id ? 'selected' : ''}>${esc(category.code)}${category.name === category.code ? '' : ' - ' + esc(category.name)}</option>`).join('')}</select>${source && (!source._editId || source.entityType === 'request') ? `<input type="hidden" name="categoryId" value="${esc(source.categoryId)}">` : ''}${assignableCategories().length ? '' : '<small>Belum ada kategori yang diizinkan. Hubungi admin untuk pengaturan otorisasi departemen.</small>'}</div>
+        <div class="field"><label for="doc-category">Kategori dokumen <span>*</span></label><select name="categoryId" id="doc-category" required ${source && (!source._editId || source.entityType === 'request') ? 'disabled' : ''}><option value="">Pilih kategori dokumen</option>${assignableCategories().map(category => `<option value="${esc(category.id)}" ${source?.categoryId === category.id ? 'selected' : ''}>${esc(category.name)}</option>`).join('')}</select>${source && (!source._editId || source.entityType === 'request') ? `<input type="hidden" name="categoryId" value="${esc(source.categoryId)}">` : ''}${assignableCategories().length ? '' : '<small>Belum ada kategori yang diizinkan. Hubungi admin untuk pengaturan otorisasi departemen.</small>'}</div>
         <div class="field"><label for="doc-revision">Nomor revisi</label><input id="doc-revision" type="number" min="0" readonly value="${revision}"></div>
         <div class="field"><label for="department">Departemen <span>*</span></label><select id="department" name="departmentId" required ${source && (!source._editId || source.entityType === 'request') ? 'disabled' : ''}>${options(departments, departmentId)}</select>${source && (!source._editId || source.entityType === 'request') ? `<input type="hidden" name="departmentId" value="${esc(departmentId)}">` : ''}</div>
         <div class="field"><label for="section">Seksi <span>*</span></label><select id="section" name="sectionId" required ${source && (!source._editId || source.entityType === 'request') ? 'disabled' : ''}>${options(db.sections.filter(s => s.departmentId === departmentId), sectionId)}</select>${source && (!source._editId || source.entityType === 'request') ? `<input type="hidden" name="sectionId" value="${esc(sectionId)}">` : ''}</div>
-        <div class="field"><label for="effective-date">Tanggal Efektif <span>*</span></label><input type="date" name="effectiveDate" id="effective-date" value="${esc(source?.effectiveDate || new Date().toLocaleDateString('en-CA'))}" required></div>
+        <div class="field"><label for="effective-date">Tanggal Request <span>*</span></label><input type="date" name="effectiveDate" id="effective-date" value="${esc(source?.effectiveDate || new Date().toLocaleDateString('en-CA'))}" required></div>
         ${source && (!source._editId || source.entityType === 'request') ? `<div class="field full"><label for="change-notes">Catatan perubahan <span>*</span></label><textarea name="changeNotes" id="change-notes" placeholder="Jelaskan perubahan pada revisi ini..." maxlength="2000" required>${source._editId ? esc(source.changeNotes) : ''}</textarea></div>` : ''}
       </div>
     </div>
-    <div class="notice document-template-notice" role="status" hidden></div>
     <div class="document-attachment"><div class="form-divider"></div>
     <div class="form-section"><h2>Lampiran Dokumen</h2><p>Tambahkan file PDF jika diperlukan.</p><div class="upload-zone">${icon('upload')}<p>Pilih dokumen untuk dilampirkan</p><div class="small muted">Hanya PDF · maksimal 2 MB per file</div><input name="attachment" type="file" accept=".pdf,application/pdf" aria-label="Lampiran PDF"><p class="attachment-status" role="status"></p><button type="button" class="btn btn-secondary" data-action="preview-selected-pdf" hidden>${icon('eye')} Preview PDF di tab baru</button>${source?.attachment ? `<p class="small">Lampiran saat ini: ${esc(source.attachment.name)}. ${isPdfAttachment(source.attachment) ? 'Kosongkan untuk mempertahankan.' : 'Ganti lampiran lama dengan PDF untuk menyimpan perubahan.'}</p>` : ''}</div></div>
     </div><div class="document-email-recipients">${notificationRecipientsField(source?.emailRecipientIds || [])}</div>
@@ -646,7 +646,7 @@ async function saveDocument(event) {
   if (data.get('sourceId') && !editing && (!source || !canRequestRevision(source))) return fail('Pilih dokumen yang dapat Anda revisi.');
   const title = data.get('title')?.trim();
   const description = editing?.description || source?.description || '';
-  if (!title) return fail('Nama dokumen wajib diisi.');
+  if (!title) return fail('Judul Dokumen wajib diisi.');
   const departmentId = editing?.departmentId || source?.departmentId || data.get('departmentId');
   const sectionId = editing?.sectionId || source?.sectionId || data.get('sectionId');
   if (!isAdmin() && departmentId !== currentUser.departmentId) return fail('Pilih departemen Anda sendiri.');
@@ -699,13 +699,14 @@ async function saveDocument(event) {
   const number = Math.max(0, ...[...db.documents, ...db.documentRequests].filter(d => d.code.startsWith(`${prefix}/${dep.code}/`)).map(d => Number(d.code.split('/').pop()) || 0)) + 1;
   const doc = { id: editing?.id || uid(), title, type, categoryId, departmentId, sectionId, code: editing?.code || source?.code || `${prefix}/${dep.code}/${String(number).padStart(3, '0')}`, revision: editing ? Number(editing.revision || 0) : source ? Number(source.revision || 0) + 1 : 0, status: editing?.status || 'draft', ownerId: editing?.ownerId || currentUser.id, description, changeNotes: data.get('changeNotes')?.trim() || editing?.changeNotes || 'Penerbitan dokumen baru.', effectiveDate: data.get('effectiveDate'), attachment, workbookKey, emailRecipientIds: recipients, emailStatus: recipients.length ? 'not_configured' : null, supersedesId: editing?.supersedesId || source?.id || null, createdAt: editing?.createdAt || today(), updatedAt: today(), history: editing?.history || (source ? [...source.history] : []) };
   if (recipients.some(id => !DocumentAccess.canRead(db, db.users.find(user => user.id === id), doc))) return fail('Penerima notifikasi belum memiliki akses kategori ini. Minta admin mengatur otorisasi departemennya atau hapus penerima tersebut.');
-  Object.assign(doc, { entityType: 'request', requesterId: editing?.requesterId || actorId, sourceId: editing?.sourceId || source?.id || null, sourceUpdatedAt: editing?.sourceUpdatedAt || source?.updatedAt || null, contentVersion: (editing?.contentVersion || 0) + 1, events: editing?.events || [], reviews: editing?.reviews || [], submissions: editing?.submissions || [], approverIds: editing?.approverIds || [], reviewRound: editing?.reviewRound || 0 });
+  Object.assign(doc, { entityType: 'request', adminReviewRequired: editing ? Boolean(editing.adminReviewRequired) : true, adminNumberSet:Boolean(editing?.adminNumberSet), requesterId: editing?.requesterId || actorId, sourceId: editing?.sourceId || source?.id || null, sourceUpdatedAt: editing?.sourceUpdatedAt || source?.updatedAt || null, contentVersion: (editing?.contentVersion || 0) + 1, events: (editing?.events || []).map(item=>({...item})), reviews: editing?.reviews || [], submissions: editing?.submissions || [], approverIds: editing?.approverIds || [], reviewRound: editing?.reviewRound || 0 });
   doc.events.push({ userId: actorId, action: editing ? 'Draft diperbarui' : 'Permintaan dibuat', at: today(), round: doc.reviewRound });
   if (editing) next.documentRequests[next.documentRequests.findIndex(d => d.id === doc.id)] = doc; else next.documentRequests.unshift(doc);
+  if(editing && isAdmin() && editing.adminReviewRequired && editing.status==='admin_review')try{DocumentWorkflow.assignNumber(next,currentUser,doc,data.get('documentNumber'),today());}catch(failure){return fail(failure.message);}
   if (!saveDatabase(next)) { if (newWorkbookKey) await WorkbookStore.remove(newWorkbookKey).catch(() => {}); return; }
   if (form.dataset.origin === 'modal') modal.close();
-  toast('Draft permintaan tersimpan. Ajukan persetujuan setelah isinya selesai.');
-  navigate('requests');
+  toast('Draft tersimpan. Lengkapi dokumen sebelum dikirim ke admin.');
+  navigate(doc.workbookKey && !editing ? 'workbook-' + doc.id : 'requests');
 
 }
 
@@ -742,7 +743,9 @@ function showDetail(id) {
 }
 
 function isPdfAttachment(attachment) {
-  if (!attachment || !/\.pdf$/i.test(attachment.name) || typeof attachment.data !== 'string') return false;
+  if (!attachment || !/\.pdf$/i.test(attachment.name)) return false;
+  if (attachment.storageKey) return attachment.type==='application/pdf' && /^approval-pdf-[a-z0-9-]+$/i.test(attachment.storageKey) && attachment.size>0 && attachment.size<=5*1024*1024;
+  if(typeof attachment.data !== 'string')return false;
   const match = attachment.data.match(/^data:[^,]{0,100};base64,/);
   if (!match) return false;
   try { return atob(attachment.data.slice(match[0].length, match[0].length + 12)).startsWith('%PDF-'); }
@@ -799,12 +802,16 @@ function openPdfPreview(attachment, metadata = {}, documentId = '', categoryId =
   const tab = window.open(url.href, '_blank');
   if (!tab) return toast('Izinkan pop-up browser untuk membuka preview PDF di tab baru.', true);
   const targetOrigin = location.protocol === 'file:' ? '*' : location.origin;
-  const onReady = event => {
+  const onReady = async event => {
     if (event.source !== tab || event.data?.type !== 'docuflow:pdf-ready' || event.data.channel !== channel) return;
     if (location.protocol !== 'file:' && event.origin !== location.origin) return;
     if (!permitted()) { cleanup(); tab.close(); toast('Akses preview berubah. Buka kembali dokumen.', true); return; }
-    tab.postMessage({ type: 'docuflow:pdf-data', channel, attachment, metadata }, targetOrigin);
     cleanup();
+    try {
+      const content=attachment.storageKey?{...attachment,bytes:await WorkbookStore.get(attachment.storageKey)}:attachment;
+      if(!permitted()){tab.close();toast('Akses preview berubah. Buka kembali dokumen.',true);return;}
+      tab.postMessage({ type: 'docuflow:pdf-data', channel, attachment:content, metadata }, targetOrigin);
+    } catch(error){tab.close();toast('PDF tidak tersedia di browser ini.',true);}
   };
   const cleanup = () => { window.removeEventListener('message', onReady); clearTimeout(timeout); };
   const timeout = setTimeout(cleanup, 30000);
@@ -816,11 +823,15 @@ document.addEventListener('change', event => {
 });
 
 function downloadBlob(blob, name) { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
-function downloadDocument(id) {
+async function downloadDocument(id) {
   const d = documentRecord(id);
   if (!d || !canRead(d)) return;
-  if (d.workbookKey) return downloadWorkbook(id);
+  if (d.workbookKey && !isPdfAttachment(d.attachment)) return downloadWorkbook(id);
   if (d.attachment) {
+    if(d.attachment.storageKey){
+      const snapshot=db,actorId=currentUser.id;
+      try{const bytes=await WorkbookStore.get(d.attachment.storageKey);if(db!==snapshot||currentUser?.id!==actorId||!canRead(d))return;downloadBlob(new Blob([bytes],{type:'application/pdf'}),d.attachment.name);toast('Dokumen berhasil diunduh.');}catch{toast('PDF tidak tersedia di browser ini.',true);}return;
+    }
     if (!/^data:[^,]*;base64,[A-Za-z0-9+/=\r\n]+$/.test(d.attachment.data)) return toast('Lampiran tidak dapat dibaca.', true);
     const bytes = Uint8Array.from(atob(d.attachment.data.split(',')[1]), c => c.charCodeAt(0));
     downloadBlob(new Blob([bytes], { type: d.attachment.type || 'application/octet-stream' }), d.attachment.name);
@@ -878,6 +889,40 @@ function confirmDeleteDocumentType(id) {
   showModal(`${modalHeading('Hapus Jenis Dokumen?')}<p class="detail-body">Jenis “${esc(type.name)}” (${esc(type.prefix)}) akan dihapus dari sidebar, kategori, filter, dan formulir.</p><div class="form-actions"><button class="btn btn-secondary" data-action="close-modal">Batal</button><button class="btn btn-danger" data-action="confirm-delete-type" data-id="${esc(type.id)}">${icon('trash')} Delete</button></div>`);
 }
 
+
+function showSignatureForm() {
+  const actorId = currentUser?.id;
+  if (!actorId) return;
+  closeProfile();
+  showModal(`${modalHeading('Tanda Tangan Saya')}<form id="signature-form"><p class="detail-body">Unggah gambar tanda tangan untuk digunakan saat menyetujui dokumen.</p><div class="field"><label for="signature-file">Gambar tanda tangan (PNG atau JPG, maksimal 2 MB)</label><input id="signature-file" type="file" accept="image/png,image/jpeg" required></div><p class="small muted">${currentUser.signatureKey ? 'Tanda tangan sebelumnya tersimpan. Unggah gambar baru untuk menggantinya.' : 'Belum ada tanda tangan tersimpan.'}</p><img id="signature-preview" alt="Pratinjau tanda tangan" hidden style="display:block;max-width:100%;max-height:160px;object-fit:contain"><p id="signature-error" class="form-error" role="alert"></p><div class="form-actions"><button type="button" class="btn btn-secondary" data-action="close-modal">Batal</button><button type="submit" class="btn btn-primary">Simpan Tanda Tangan</button></div></form>`);
+  const form = document.getElementById('signature-form'), input = form.querySelector('#signature-file'), preview = form.querySelector('#signature-preview');
+  let previewUrl = '';
+  modal.addEventListener('close', () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, { once: true });
+  input.addEventListener('change', () => { if (previewUrl) URL.revokeObjectURL(previewUrl); previewUrl = input.files[0] ? URL.createObjectURL(input.files[0]) : ''; preview.hidden = !previewUrl; if (previewUrl) preview.src = previewUrl; });
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    const file = input.files[0], error = form.querySelector('#signature-error'), snapshot = db;
+    if (!file || !['image/png','image/jpeg'].includes(file.type) || file.size > 2 * 1024 * 1024 || !file.size) { error.textContent = 'Pilih gambar PNG atau JPG dengan ukuran maksimal 2 MB.'; return; }
+    let key;
+    try {
+      const bitmap = await createImageBitmap(file);
+      if (!bitmap.width || !bitmap.height || bitmap.width * bitmap.height > 25000000) { bitmap.close(); throw new Error('Ukuran gambar terlalu besar.'); }
+      const scale = Math.min(1, 1024 / bitmap.width, 512 / bitmap.height), canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale)); canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height); bitmap.close();
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error('Gambar tanda tangan tidak dapat dibaca.');
+      if (db !== snapshot || currentUser?.id !== actorId || !form.isConnected) throw new Error('Sesi berubah. Buka kembali profil Anda.');
+      key = 'signature-' + uid(); await WorkbookStore.put(key, await blob.arrayBuffer());
+      if (db !== snapshot || currentUser?.id !== actorId || !form.isConnected) throw new Error('Sesi berubah. Buka kembali profil Anda.');
+      const next = transaction(), user = next.users.find(item => item.id === actorId);
+      if (!user) throw new Error('Pengguna tidak tersedia.');
+      user.signatureKey = key;
+      if (!saveDatabase(next)) throw new Error('Tanda tangan belum tersimpan.');
+      key = null; currentUser = db.users.find(item => item.id === actorId); if (previewUrl) URL.revokeObjectURL(previewUrl); modal.close(); toast('Tanda tangan berhasil disimpan.');
+    } catch (failure) { if (key) await WorkbookStore.remove(key).catch(() => {}); if (form.isConnected) error.textContent = failure.message || 'Gambar tanda tangan tidak dapat dibaca.'; }
+  });
+}
 
 function usersPage() {
   const tabs = [['users', 'Pengguna'], ['departments', 'Departemen'], ['sections', 'Seksi']];
@@ -946,7 +991,7 @@ document.addEventListener('click', event => {
     case 'download': downloadDocument(id); break;
     case 'preview-pdf': {
       const doc = documentRecord(id);
-      if (doc && canRead(doc)) openPdfPreview(doc.attachment, { title: doc.title, code: doc.code }, doc.id);
+      if (doc && canRead(doc)) openPdfPreview(doc.signedAttachment || doc.attachment, { title: doc.title, code: doc.code }, doc.id);
       break;
     }
     case 'preview-selected-pdf': {
@@ -1016,8 +1061,9 @@ document.addEventListener('click', event => {
     case 'admin-tab': if (isAdmin() && ['users', 'departments', 'sections'].includes(target.dataset.tab)) { adminTab = target.dataset.tab; render(); } break;
     case 'add-admin': showAdminForm(); break;
     case 'edit-admin': showAdminForm(id); break;
-    case 'profile': { const existing = document.querySelector('.profile-menu'); if (existing) { closeProfile(); break; } const el = document.createElement('div'); el.id = 'profile-menu'; el.className = 'profile-menu'; el.setAttribute('role', 'region'); el.setAttribute('aria-label', 'Profil pengguna'); el.innerHTML = `<strong>${esc(currentUser.name)}</strong><p>${esc(currentUser.email)}<br>${esc(departmentName(currentUser.departmentId))}<br>${esc(sectionName(currentUser.sectionId))}</p><button class="btn btn-secondary" data-action="logout">${icon('logout')} Keluar dari workspace</button>`; document.querySelector('.topbar').appendChild(el); target.setAttribute('aria-expanded', 'true'); el.querySelector('button').focus(); break; }
-    case 'logout': try { localStorage.removeItem(SESSION_KEY); } catch {} currentUser = null; page = 1; createMode = 'create'; adminTab = 'users'; filter = { search: '', type: '', department: '', category: '' }; modal.close(); renderLogin(); break;
+    case 'profile': { const existing = document.querySelector('.profile-menu'); if (existing) { closeProfile(); break; } const el = document.createElement('div'); el.id = 'profile-menu'; el.className = 'profile-menu'; el.setAttribute('role', 'region'); el.setAttribute('aria-label', 'Profil pengguna'); el.innerHTML = `<strong>${esc(currentUser.name)}</strong><p>${esc(currentUser.email)}<br>${esc(departmentName(currentUser.departmentId))}<br>${esc(sectionName(currentUser.sectionId))}</p><button class="btn btn-secondary" data-action="signature-profile">Tanda Tangan Saya</button><button class="btn btn-secondary" data-action="logout">${icon('logout')} Keluar dari workspace</button>`; document.querySelector('.topbar').appendChild(el); target.setAttribute('aria-expanded', 'true'); el.querySelector('button').focus(); break; }
+    case 'signature-profile': showSignatureForm(); break;
+    case 'logout': try { localStorage.removeItem(SESSION_KEY); } catch {} currentUser = null; page = 1; createMode = 'create'; adminTab = 'users'; requestListTab = 'incoming'; filter = { search: '', type: '', department: '', category: '' }; modal.close(); renderLogin(); break;
   }
 });
 

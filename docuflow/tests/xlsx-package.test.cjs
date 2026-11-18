@@ -47,6 +47,19 @@ test('memeriksa paket valid dan menolak file rusak sebelum dekompresi', async ()
   assert.throws(() => xlsx.inspectArchive(truncated));
 });
 
+test('menerima workbook hingga 5 MiB dan menolak satu byte di atasnya', async () => {
+  const limit = 5 * 1024 * 1024;
+  const make = async size => {
+    const zip = new JSZip(); zip.file('xl/data.bin', new Uint8Array(size));
+    return zip.generateAsync({ type: 'uint8array', compression: 'STORE' });
+  };
+  const overhead = (await make(0)).length;
+  const atLimit = await make(limit - overhead);
+  assert.equal(atLimit.length, limit);
+  assert.ok(xlsx.inspectArchive(atLimit).entries);
+  assert.throws(() => xlsx.inspectArchive(new Uint8Array(limit + 1)), /5 MB/);
+});
+
 test('menolak ukuran terurai berlebih, path traversal, serta macro', async () => {
   const zip = new JSZip();
   zip.file('a.xml', 'x');

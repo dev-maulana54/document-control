@@ -31,7 +31,7 @@ function showWorkbookPicture() {
       const image = await WorkbookMedia.readImage(file);
       if (!form.isConnected || !modal.open || activeWorkbook !== state || state.sheetIndex !== sheetIndex || db !== snapshot || currentUser?.id !== actorId || file !== form.querySelector('[type=file]').files[0] || !workbookDocument(true)) throw new Error('Data berubah. Buka kembali Pictures.');
       const sheet = state.book.sheets[sheetIndex];
-      if ([...sheet.images,...(sheet.insertedImages||[])].filter(image=>image.kind!=='shape').length >= 50) throw new Error('Maksimal 50 gambar per sheet.');
+      if ([...sheet.images.map(image=>sheet.imageMoves?.[image.anchorIndex]||image),...(sheet.insertedImages||[])].filter(image=>image.kind!=='shape'&&!image.hidden).length >= 50) throw new Error('Maksimal 50 gambar per sheet.');
       if (!workbookCheckpoint()) throw new Error('Dokumen sedang disimpan.');
       const point = XlsxPackage.position(reference), scale = Math.min(width / image.naturalWidth,480 / image.naturalHeight);
       sheet.insertedImages ||= [];

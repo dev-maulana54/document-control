@@ -24,12 +24,12 @@ const WorkbookFormat = (() => {
     return book.stylesXml;
   }
   function format(book, index, address, property, value) {
-    const allowed = ['fontName','fontSize','bold','italic','underline','color','background','horizontal','vertical','wrap','borders','numFmt'];
+    const allowed = ['fontName','fontSize','bold','italic','underline','strike','color','background','horizontal','vertical','wrap','borders','numFmt'];
     if (!allowed.includes(property)) throw new Error('Format tidak didukung.');
     if (['color','background'].includes(property) && !(property==='background'&&value==='none') && !/^#[0-9a-f]{6}$/i.test(value)) throw new Error('Warna tidak valid.');
     if (property === 'fontName' && !fonts.includes(value) && !book.styles.some(style => style.fontName === value)) throw new Error('Font tidak valid.');
     if (property === 'fontSize' && (!Number.isFinite(Number(value)) || !Number.isInteger(Number(value) * 2) || value < 1 || value > 409)) throw new Error('Ukuran font 1-409, dengan kelipatan 0,5.');
-    if (property === 'numFmt' && ![0,1,2,9,10,14,49].includes(Number(value))) throw new Error('Format angka tidak valid.');
+    if (property === 'numFmt' && ![0,1,2,3,4,5,7,9,10,11,12,13,14,18,49].includes(Number(value))) throw new Error('Format angka tidak valid.');
     if (property === 'horizontal' && !['left','center','right'].includes(value) || property === 'vertical' && !['top','center','bottom'].includes(value) || property === 'borders' && !['all','none'].includes(value)) throw new Error('Format tidak valid.');
     if(property==='borders')return WorkbookBorders.apply(book,index,address,value,{color:'#64748b'});
     const sheet = book.sheets[index], refs = references(range(sheet, address)), xml = styles(book), root = xml.documentElement;
@@ -42,10 +42,10 @@ const WorkbookFormat = (() => {
       const cell = E.ensureCell(sheet, ref), old = Number(cell.getAttribute('s')) || 0;
       if (!cache.has(old)) {
         const xf = (xfs.children[old] || xfs.children[0]).cloneNode(true);
-        if (['fontName','fontSize','bold','italic','underline','color'].includes(property)) {
+        if (['fontName','fontSize','bold','italic','underline','strike','color'].includes(property)) {
           const fonts = group('fonts'), font = (fonts.children[Number(xf.getAttribute('fontId')) || 0] || fonts.children[0]).cloneNode(true);
-          const tag = {fontName:'name',fontSize:'sz',bold:'b',italic:'i',underline:'u',color:'color'}[property];
-          if (['bold','italic','underline'].includes(property)) { E.child(font, tag)?.remove(); if (value) font.appendChild(create(tag)); }
+          const tag = {fontName:'name',fontSize:'sz',bold:'b',italic:'i',underline:'u',strike:'strike',color:'color'}[property];
+          if (['bold','italic','underline','strike'].includes(property)) { E.child(font, tag)?.remove(); if (value) font.appendChild(create(tag)); }
           else if (property === 'color') { E.child(font, tag)?.remove(); set(font, tag, {rgb:'FF' + value.slice(1).toUpperCase()}); }
           else set(font, tag, {val:value});
           xf.setAttribute('fontId', intern(fonts,font)); xf.setAttribute('applyFont','1');
@@ -79,7 +79,18 @@ const WorkbookFormat = (() => {
         const formula=E.child(cell,'f');
         if(!removed.has(reference)&&formula?.getAttribute('t')==='shared'&&sharedMasters.has(formula.getAttribute('si')))throw new Error('Rentang memotong rumus bersama. Sertakan seluruh grup rumus atau ubah menjadi rumus biasa di Excel terlebih dahulu.');
       }
-      // Excel retains only the physical top-left cell, even when that cell is empty.
+      // Keep a single value even when the user started typing away from the
+      // merge anchor. Multiple populated cells retain the existing merge policy.
+      const populated=refs.filter(reference=>{const cell=sheet.cells.get(reference);return cell&&(E.child(cell,'f')||E.value(book,cell)!=='');});
+      if(populated.length===1&&populated[0]!==master){
+        const source=sheet.cells.get(populated[0]);
+        if(!E.child(source,'f')){
+          const target=E.ensureCell(sheet,master);
+          for(const node of [...target.children])if(['v','is','f'].includes(node.localName))node.remove();
+          for(const attribute of ['t','cm','vm','ph']){if(source.hasAttribute(attribute))target.setAttribute(attribute,source.getAttribute(attribute));else target.removeAttribute(attribute);}
+          for(const node of [...source.children])if(['v','is'].includes(node.localName))target.appendChild(node.cloneNode(true));
+        }
+      }
       for (const reference of refs.slice(1)) {
         const cell = sheet.cells.get(reference);
         if (!cell) continue;
@@ -138,7 +149,12 @@ const WorkbookFormat = (() => {
     const number=Number(value);
     if(format===1)return number.toLocaleString('en-US',{useGrouping:false,maximumFractionDigits:0});
     if(format===2)return number.toFixed(2);
+    if(format===3||format===4)return number.toLocaleString('en-US',{minimumFractionDigits:format===4?2:0,maximumFractionDigits:format===4?2:0});
+    if(format===5||format===7){const amount=Math.abs(number).toLocaleString('en-US',{minimumFractionDigits:format===7?2:0,maximumFractionDigits:format===7?2:0});return number<0?'($'+amount+')':'$'+amount;}
     if(format===9||format===10)return (number*100).toFixed(format===10?2:0)+'%';
+    if(format===11)return number.toExponential(2).replace(/e([+-])(\d+)/i,(_,sign,digits)=>'E'+sign+digits.padStart(2,'0'));
+    if(format===12||format===13){const absolute=Math.abs(number),whole=Math.floor(absolute),fraction=absolute-whole,limit=format===12?9:99;let numerator=0,denominator=1,error=Infinity;for(let d=1;d<=limit;d++){const n=Math.round(fraction*d),distance=Math.abs(fraction-n/d);if(distance<error){numerator=n;denominator=d;error=distance;}}const integer=whole+(numerator===denominator?1:0),part=numerator&&numerator!==denominator?numerator+'/'+denominator:'';return (number<0?'-':'')+(integer||!part?integer:'')+(integer&&part?' ':'')+part;}
+    if(format===18){const minutes=((Math.round(number*1440)%1440)+1440)%1440,hour=Math.floor(minutes/60);return (hour%12||12)+':'+String(minutes%60).padStart(2,'0')+' '+(hour<12?'AM':'PM');}
     if (format === 14 && number >= 0 && number < 2958466) {
       const date1904 = ['1','true'].includes(E.child(book.workbook.documentElement, 'workbookPr')?.getAttribute('date1904'));
       // Excel keeps the fictitious 1900-02-29 at serial 60 for compatibility.

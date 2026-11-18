@@ -7,15 +7,20 @@ function workbookSelectedShape(){
   return shape?.kind==='shape'&&!shape.hidden?{state,sheet,key,index,original,shape}:null;
 }
 function workbookShapeNode(shape){
-  const node=document.createElement('div');node.className='workbook-image workbook-shape';node.innerHTML=WorkbookShapes.svg(shape.id);
+  const node=document.createElement('div');node.className='workbook-image workbook-shape';node.innerHTML=WorkbookShapes.svg(shape.id,shape);
   const group=node.querySelector('g');group.setAttribute('fill',WorkbookShapes.get(shape.id).line||shape.noFill?'none':shape.fill);group.setAttribute('fill-opacity','1');group.setAttribute('stroke',shape.noLine||shape.id==='textBox'?'none':shape.stroke);group.setAttribute('stroke-width',shape.lineWidth);
   // Paint the geometry itself as well as its group, so the outline remains
   // explicit for every preset at any sheet zoom or object size.
   node.querySelectorAll('path,rect,circle,ellipse,polygon').forEach(element=>{element.setAttribute('vector-effect','non-scaling-stroke');for(const name of ['fill','stroke','stroke-width'])element.setAttribute(name,group.getAttribute(name));});
-  const label=document.createElement('span');label.className='workbook-shape-label';label.textContent=shape.text;
-  Object.assign(label.style,{color:shape.textColor,fontSize:shape.fontSize+'pt',fontFamily:shape.fontName||'Arial',fontWeight:shape.bold?'700':'400',fontStyle:shape.italic?'italic':'normal',textDecoration:shape.underline?'underline':'none',textAlign:shape.horizontal||'center',alignItems:{top:'flex-start',bottom:'flex-end'}[shape.vertical]||'center',justifyContent:{left:'flex-start',right:'flex-end'}[shape.horizontal]||'center',whiteSpace:shape.wrap===false?'pre':'pre-wrap'});node.appendChild(label);
+  const label=document.createElement('span'),text=document.createElement('span');label.className='workbook-shape-label';text.className='workbook-shape-text';text.textContent=shape.text;label.appendChild(text);
+  Object.assign(label.style,{color:shape.textColor,fontSize:shape.fontSize+'pt',fontFamily:shape.fontName||'Arial',fontWeight:shape.bold?'700':'400',fontStyle:shape.italic?'italic':'normal',textDecoration:shape.underline?'underline':'none',textAlign:shape.horizontal||'center',justifyContent:{top:'flex-start',bottom:'flex-end'}[shape.vertical]||'center',whiteSpace:shape.wrap===false?'pre':'pre-wrap'});
+  // Label and editor share native font metrics before worksheet scaling.
+  const layer=workbookTextLayer(label,shape.width,shape.height,activeWorkbook.gridLayout.zoom);layer.classList.add('workbook-shape-text-layer');node.appendChild(layer);
   if(shape.nativePreview&&!shape.shapeStyleChanged){node.querySelector('svg').style.visibility='hidden';label.style.visibility='hidden';const preview=document.createElement('img');preview.className='workbook-shape-native-preview';preview.alt='';preview.draggable=false;preview.onerror=()=>{node.querySelector('svg').style.visibility='';label.style.visibility='';preview.remove();};preview.src=shape.nativePreview;node.appendChild(preview);}
   return node;
+}
+function resizeWorkbookShapeText(node,width,height){
+  const layer=node.querySelector('.workbook-shape-text-layer');if(layer){layer.style.width=width+'px';layer.style.height=height+'px';}
 }
 function updateWorkbookShape(patch,repaint=true){
   const current=workbookSelectedShape();if(!current||!workbookDocument(true)||current.state.saving)return false;
@@ -38,17 +43,21 @@ function formatWorkbookShape(property,value){
 }
 function beginWorkbookShapeText(node){
   const current=workbookSelectedShape();if(!current||!workbookDocument(true)||current.state.saving||node.querySelector('.workbook-shape-editor'))return;
-  const {state,shape,key}=current,index=state.sheetIndex,label=node.querySelector('.workbook-shape-label'),editor=document.createElement('textarea');
+  const {state,shape,key}=current,index=state.sheetIndex,label=node.querySelector('.workbook-shape-label'),previousVisibility=label.style.visibility,surface=document.createElement('span'),editor=document.createElement('textarea');
   editor.className='workbook-shape-editor';editor.setAttribute('aria-label','Teks bentuk');editor.maxLength=1000;editor.value=shape.text;
-  editor.style.cssText=label.style.cssText;label.style.visibility='hidden';node.appendChild(editor);node.classList.add('is-text-editing');
+  editor.wrap=shape.wrap===false?'off':'soft';surface.className='workbook-shape-label workbook-shape-editing-area';surface.style.cssText=label.style.cssText;surface.style.visibility='';surface.appendChild(editor);label.style.visibility='hidden';label.parentElement.appendChild(surface);node.classList.add('is-text-editing');
+  // A textarea cannot vertically align its own text. Size it to the text, then
+  // let the same flex layout used by the label place it inside the shape.
+  const sizeText=()=>{editor.style.height='0px';editor.style.height=editor.scrollHeight+'px';};
+  const observer=new ResizeObserver(sizeText);observer.observe(surface);editor.addEventListener('input',sizeText);sizeText();
   let finished=false;
   const finish=cancel=>{
     if(finished)return;finished=true;
-    const selected=workbookSelectedShape();
+    const selected=workbookSelectedShape();let committed=false;
     if(!cancel&&state===activeWorkbook&&state.sheetIndex===index&&selected?.key===key&&selected.shape===shape&&editor.value!==shape.text){
-      try{if(updateWorkbookShape({text:editor.value},false)){label.textContent=editor.value;node.querySelector('svg').style.visibility='';node.querySelector('.workbook-shape-native-preview')?.remove();}}catch(error){toast(error.message,true);}
+      try{if(updateWorkbookShape({text:editor.value},false)){committed=true;label.firstElementChild.textContent=editor.value;node.querySelector('svg').style.visibility='';node.querySelector('.workbook-shape-native-preview')?.remove();}}catch(error){toast(error.message,true);}
     }
-    editor.remove();label.style.visibility='';node.classList.remove('is-text-editing');
+    observer.disconnect();surface.remove();label.style.visibility=committed?'':previousVisibility;node.classList.remove('is-text-editing');
   };
   editor.addEventListener('blur',()=>finish(false));
   editor.addEventListener('keydown',event=>{
@@ -113,15 +122,8 @@ function editWorkbookShape(){
     }catch(error){document.getElementById('shape-format-error').textContent=error.message;}
   };
 }
-function deleteWorkbookShape(){
-  const current=workbookSelectedShape();if(!current||!workbookDocument(true)||activeWorkbook.saving||modal.open||!workbookCheckpoint())return;
-  if(current.original)current.sheet.imageMoves={...current.sheet.imageMoves,[current.index]:{...current.shape,hidden:true}};else current.sheet.insertedImages.splice(current.index,1);
-  current.state.selectedPicture=null;current.state.book.modified.add(current.state.sheetIndex);current.state.historyGroup=null;workbookChanged();restoreWorkbookFocus();
-}
-document.addEventListener('click',event=>{if(!workbookDocument(true))return;const action=event.target.closest('[data-shape-action]')?.dataset.shapeAction;if(action==='edit')editWorkbookShape();if(action==='delete')deleteWorkbookShape();});
 document.addEventListener('dblclick',event=>{const node=event.target.closest('.workbook-shape.is-movable');if(node&&!event.target.closest('textarea')){event.preventDefault();beginWorkbookShapeText(node);}});
 
 // Commit before selection changes. Keep the object DOM in place so the same
 // pointer gesture can select/drag another object or a cell without losing text.
 document.addEventListener('pointerdown',event=>{const editor=document.querySelector('.workbook-shape-editor');if(editor&&!editor.contains(event.target))editor.blur();},true);
-document.addEventListener('keydown',event=>{if(event.target.closest('.workbook-shape.is-movable')&&!event.target.matches('input,textarea')&&['Delete','Backspace'].includes(event.key)){event.preventDefault();deleteWorkbookShape();}});

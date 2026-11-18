@@ -2,6 +2,10 @@
 
 let workbookDrag = null;
 
+function workbookMergedSelection(merge, reference) {
+  return merge ? merge.start + ':' + XlsxPackage.address(merge.last.column, merge.last.row) : reference;
+}
+
 function workbookSelectionArea() {
   const state = activeWorkbook;
   return WorkbookFormat.range(state.book.sheets[state.sheetIndex], state.range || state.selected);
@@ -26,8 +30,9 @@ function paintWorkbookSelection() {
 
 function restoreWorkbookFocus(selectAll = false) {
   if (!workbookDocument() || activeWorkbook.saving || document.getElementById('modal')?.open) return;
-  if(workbookSelectedShape()){
-    document.querySelector('.workbook-shape[data-inserted-image="'+CSS.escape(String(activeWorkbook.selectedPicture))+'"]')?.focus({preventScroll:true});return;
+  if(activeWorkbook.selectedPicture!==null&&activeWorkbook.selectedPicture!==undefined){
+    const object=document.querySelector('.workbook-image.is-movable[data-inserted-image="'+CSS.escape(String(activeWorkbook.selectedPicture))+'"]');
+    if(object){object.focus({preventScroll:true});return;}
   }
   const state = activeWorkbook, cell = document.querySelector(`.workbook-cell[data-cell="${state.selected}"]`) || document.getElementById('workbook-cell-value');
   if (!cell || cell.disabled) return;
@@ -55,7 +60,9 @@ function extendWorkbookDrag(event) {
   const last = { row: Math.max(drag.anchor.row, point.row), column: Math.max(drag.anchor.column, point.column) };
   if (drag.axis === 'column') { first.row = 1; last.row = sheet.rows; }
   if (drag.axis === 'row') { first.column = 1; last.column = sheet.columns; }
-  let expanded = true;
+  // Only cell selections expand to cover merged cells. Whole-row/column
+  // selections must remain on the headers the user actually selected.
+  let expanded = drag.axis === 'cell';
   while (expanded) {
     expanded = false;
     for (const merge of sheet.merges) {

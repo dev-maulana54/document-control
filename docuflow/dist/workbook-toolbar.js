@@ -68,6 +68,14 @@ function workbookHistory(action) {
 }
 function workbookChanged() {activeWorkbook.dirty=true;activeWorkbook.edits++;renderWorkbookSheet();}
 function workbookRange() {return activeWorkbook.range || activeWorkbook.selected;}
+function workbookSelectedMerge() {
+  const state=activeWorkbook,sheet=state.book.sheets[state.sheetIndex],area=WorkbookFormat.range(sheet,workbookRange());
+  return sheet.merges.find(merge => {
+    const exact=area.first.row===merge.first.row&&area.last.row===merge.last.row&&area.first.column===merge.first.column&&area.last.column===merge.last.column;
+    const single=area.first.row===area.last.row&&area.first.column===area.last.column&&area.first.row>=merge.first.row&&area.first.row<=merge.last.row&&area.first.column>=merge.first.column&&area.first.column<=merge.last.column;
+    return exact||single;
+  });
+}
 function highlightWorkbookRange() {
   if(!workbookDocument())return;
   const state=activeWorkbook,sheet=state.book.sheets[state.sheetIndex],area=WorkbookFormat.range(sheet,workbookRange());
@@ -92,6 +100,7 @@ function syncWorkbookFormatControls(){
     if(value!==undefined&&property!=='borders'&&(!['color','background'].includes(property)||/^#[0-9a-f]{6}$/i.test(value)))control.value=String(value);
   });
   for(const property of ['bold','italic','underline','wrap'])document.querySelector(`[data-format-action="${property}"]`)?.setAttribute('aria-pressed',Boolean(style[property]));
+  document.querySelector('[data-format-action="merge"]')?.setAttribute('aria-pressed',String(!shape&&Boolean(workbookSelectedMerge())));
   document.querySelectorAll('[data-ribbon-property]').forEach(button => button.setAttribute('aria-pressed', String(style[button.dataset.ribbonProperty]) === button.dataset.value));
   document.querySelectorAll('[data-format-action="merge"], [data-format-action="unmerge"], [data-format-property="numFmt"], [data-ribbon-property="numFmt"], [data-border-ui], [data-ribbon-action="row-height"], [data-ribbon-action="column-width"], [data-ribbon-action="clear"], [data-ribbon-action="copy"], [data-ribbon-action="cut"], [data-ribbon-action="paste"], [data-ribbon-action="paste-external"]').forEach(control=>{control.disabled=Boolean(shape);});
 }
@@ -120,12 +129,12 @@ document.addEventListener('click',event=>{
       const address=document.getElementById('workbook-range').value.toUpperCase().trim();const area=WorkbookFormat.range(sheet,address);WorkbookFormat.references(area);
       const destination=XlsxPackage.address(area.first.column,area.first.row);
       const merge=area.first.row===area.last.row&&area.first.column===area.last.column?sheet.merges.find(merge=>area.first.row>=merge.first.row&&area.first.row<=merge.last.row&&area.first.column>=merge.first.column&&area.first.column<=merge.last.column):null;
-      state.selectedPicture=null;paintWorkbookPictureSelection();state.range=merge?merge.start:address;state.anchor=merge?merge.start:destination;selectWorkbookCell(state.anchor);ensureWorkbookCellVisible(destination);highlightWorkbookRange();return;
+      state.selectedPicture=null;paintWorkbookPictureSelection();state.range=merge?workbookMergedSelection(merge,merge.start):address;state.anchor=merge?merge.start:destination;selectWorkbookCell(state.anchor);ensureWorkbookCellVisible(destination);highlightWorkbookRange();return;
     }
     if(!workbookDocument(true))return;
     if(['undo','redo'].includes(action)){workbookHistory(action);return;}
     if(workbookSelectedShape()&&['merge','unmerge'].includes(action))return;
-    if(['merge','unmerge'].includes(action)){if(!workbookCheckpoint())return;const master=WorkbookFormat.merge(state.book,state.sheetIndex,workbookRange(),action==='unmerge');if(action==='merge'){state.selected=master;state.anchor=master;WorkbookFormat.format(state.book,state.sheetIndex,workbookRange(),'horizontal','center');}state.historyGroup=null;workbookChanged();restoreWorkbookFocus();return;}
+    if(['merge','unmerge'].includes(action)){const unmerge=action==='unmerge'||Boolean(workbookSelectedMerge());if(!workbookCheckpoint())return;const master=WorkbookFormat.merge(state.book,state.sheetIndex,workbookRange(),unmerge);if(!unmerge){state.selected=master;state.anchor=master;WorkbookFormat.format(state.book,state.sheetIndex,workbookRange(),'horizontal','center');}state.historyGroup=null;workbookChanged();restoreWorkbookFocus();return;}
     const style=workbookCurrentStyle();
     applyWorkbookFormat(action,!style[action]);
   }catch(failure){state.historyGroup=null;toast(failure.message,true);}

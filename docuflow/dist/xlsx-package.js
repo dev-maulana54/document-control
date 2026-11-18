@@ -1,7 +1,7 @@
 'use strict';
 
 (function (root) {
-  const limits = { file: 2 * 1024 * 1024, expanded: 16 * 1024 * 1024, part: 8 * 1024 * 1024, entries: 512, rows: 1048576, columns: 16384 };
+  const limits = { file: 5 * 1024 * 1024, expanded: 16 * 1024 * 1024, part: 8 * 1024 * 1024, entries: 512, rows: 1048576, columns: 16384 };
 
   function sheetSize(currentRows, currentColumns, rows, columns) {
     if (![rows, columns].every(Number.isInteger) || rows < currentRows || columns < currentColumns || rows < 1 || columns < 1 || rows > limits.rows || columns > limits.columns) throw new Error('Area kerja dapat diperluas hingga 1.048.576 baris dan 16.384 kolom.');
@@ -46,7 +46,7 @@
 
   function inspectArchive(input, allowMacros = false) {
     const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
-    if (bytes.length < 22 || bytes.length > limits.file) throw new Error('Pilih file XLSX, maksimal 2 MB.');
+    if (bytes.length < 22 || bytes.length > limits.file) throw new Error('Pilih file XLSX, maksimal 5 MB.');
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     let end = -1;
     for (let offset = bytes.length - 22; offset >= Math.max(0, bytes.length - 65557); offset--) {

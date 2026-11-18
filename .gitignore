@@ -3,6 +3,7 @@
 **/__pycache__/
 **/.playwright/
 **/test-results/
+/.test-tools/
 
 # Local tool state and machine-specific secrets
 /.aider-desk/

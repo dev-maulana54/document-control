@@ -9,7 +9,7 @@ function workbookEditorPage(id) {
   id = id.split('?')[0];
   const doc = documentRecord(id);
   if (!doc || !doc.workbookKey || !canRead(doc)) return `${heading('Dokumen tidak tersedia')}<section class="panel empty"><p>Dokumen Excel ini tidak tersedia untuk akun Anda.</p><a class="btn btn-secondary" href="#master">Kembali ke Master Dokumen</a></section>`;
-  return `<div class="workbook-heading"><div><h1>${esc(doc.title)}</h1><p>${esc(doc.code)} · ${esc(categoryName(doc.categoryId))} · Revisi ${formatRevision(doc.revision)}</p></div><div class="workbook-actions"><span id="workbook-save-status" role="status">Memuat workbook…</span><a href="#${doc.entityType === 'request' ? 'request-' + esc(doc.id) : 'master'}" class="btn btn-secondary">${doc.entityType === 'request' ? 'Ke Permintaan' : 'Kembali'}</a><button class="btn btn-secondary" data-workbook-action="download">${icon('download')} Unduh Excel</button>${workbookCanEdit(doc) ? `<button class="btn btn-primary" data-workbook-action="save">${icon('save')} Simpan Perubahan</button>` : ''}</div></div><section id="workbook-editor" class="panel workbook-panel" aria-label="Editor Excel">${workbookCanEdit(doc) ? workbookToolbar() : ''}<div class="workbook-formula-bar"><div class="ribbon-address-box"><label class="visually-hidden" for="workbook-range">Rentang sel</label><input id="workbook-range" aria-label="Rentang sel" value="A1" placeholder="A1:D5" spellcheck="false"><button type="button" data-format-action="select-range" aria-label="Pilih rentang" title="Go To">Go To</button></div><span class="ribbon-fx" aria-hidden="true">fx</span><output id="workbook-address" class="visually-hidden" aria-label="Alamat sel">A1</output><label class="visually-hidden" for="workbook-cell-value">Isi sel terpilih</label><textarea id="workbook-cell-value" rows="1" maxlength="4000" disabled placeholder="Pilih sel untuk mengedit isinya"></textarea></div><div id="workbook-loading" class="empty" role="status">Menyiapkan lembar kerja…</div><div id="workbook-grid" class="workbook-grid" role="region" aria-label="Lembar kerja Excel, dapat digeser" tabindex="0"></div><div class="workbook-bottom-bar"><div id="workbook-tabs" class="workbook-tabs" role="tablist" aria-label="Worksheet"></div>${workbookCanEdit(doc)?'':'<div class="workbook-readonly-view-tools">'+workbookFreezeControls()+'</div>'}${workbookZoomControls()}</div></section>`;
+  return `<div class="workbook-heading"><div><h1>${esc(doc.title)}</h1><p>${esc(doc.entityType==='request'?requestNumberLabel(doc):doc.code)} · ${esc(categoryName(doc.categoryId))} · Revisi ${formatRevision(doc.revision)}</p></div><div class="workbook-actions"><span id="workbook-save-status" role="status">Memuat workbook…</span><a href="#${doc.entityType === 'request' ? 'request-' + esc(doc.id) : 'master'}" class="btn btn-secondary">${doc.entityType === 'request' ? 'Ke Permintaan' : 'Kembali'}</a><button class="btn btn-secondary" data-workbook-action="download">${icon('download')} Unduh Excel</button>${workbookCanEdit(doc) ? `<button class="btn btn-secondary" data-workbook-action="save">${icon('save')} Simpan Perubahan</button>${doc.adminReviewRequired && doc.requesterId===currentUser.id && ['draft','returned'].includes(doc.status) ? '<button class="btn btn-primary" data-workbook-action="submit-admin">Submit ke Admin</button>' : ''}${doc.adminReviewRequired && isAdmin() && doc.status==='admin_review' ? '<button class="btn btn-primary" data-workbook-action="approval">Lanjutkan ke Approval</button>' : ''}` : ''}</div></div><section id="workbook-editor" class="panel workbook-panel" aria-label="Editor Excel">${workbookCanEdit(doc) ? workbookToolbar() : ''}<div class="workbook-formula-bar"><div class="ribbon-address-box"><label class="visually-hidden" for="workbook-range">Rentang sel</label><input id="workbook-range" aria-label="Rentang sel" value="A1" placeholder="A1:D5" spellcheck="false"><button type="button" data-format-action="select-range" aria-label="Pilih rentang" title="Go To">Go To</button></div><span class="ribbon-fx" aria-hidden="true">fx</span><output id="workbook-address" class="visually-hidden" aria-label="Alamat sel">A1</output><label class="visually-hidden" for="workbook-cell-value">Isi sel terpilih</label><textarea id="workbook-cell-value" rows="1" maxlength="4000" disabled placeholder="Pilih sel untuk mengedit isinya"></textarea></div><div id="workbook-loading" class="empty" role="status">Menyiapkan lembar kerja…</div><div id="workbook-grid" class="workbook-grid" role="region" aria-label="Lembar kerja Excel, dapat digeser" tabindex="0"></div><div class="workbook-bottom-bar"><div id="workbook-tabs" class="workbook-tabs" role="tablist" aria-label="Worksheet"></div>${workbookCanEdit(doc)?'':'<div class="workbook-readonly-view-tools">'+workbookFreezeControls()+'</div>'}${workbookZoomControls()}</div></section>`;
 }
 
 async function mountWorkbookEditor(id) {
@@ -94,9 +94,34 @@ async function saveWorkbookChanges() {
     state.key = key; state.recordVersion = updated.contentVersion; key = null; state.dirty = state.edits !== savedEdits;
     releaseWorkbookFile(previousKey);
     document.getElementById('workbook-save-status').textContent = state.dirty ? 'Perubahan belum disimpan' : 'Semua perubahan tersimpan';
-    toast('Perubahan Excel berhasil disimpan.');
-  } catch (failure) { if (key) await WorkbookStore.remove(key).catch(() => {}); toast(failure.message, true); }
+    toast('Perubahan Excel berhasil disimpan.');return !state.dirty;
+  } catch (failure) { if (key) await WorkbookStore.remove(key).catch(() => {}); toast(failure.message, true);return false; }
   finally { state.saving = false; document.querySelectorAll('[data-workbook-action]').forEach(button => { button.disabled = false; }); restoreWorkbookFocus(); }
+}
+
+async function submitWorkbookToAdmin() {
+  const state=activeWorkbook,doc=workbookDocument(true);
+  if(!doc||!doc.adminReviewRequired||doc.requesterId!==currentUser.id||!['draft','returned'].includes(doc.status)||state.saving)return;
+  if(state.dirty && !await saveWorkbookChanges())return;
+  const snapshot=db,actor=currentUser.id,key=state.key,version=state.recordVersion;
+  state.saving=true;document.querySelectorAll('[data-workbook-action]').forEach(button=>button.disabled=true);
+  try {
+    await WorkbookStore.get(key);
+    if(activeWorkbook!==state||db!==snapshot||currentUser?.id!==actor||state.key!==key||state.recordVersion!==version||state.dirty||!workbookDocument(true))throw new Error('Dokumen berubah. Periksa dan kirim kembali.');
+    const next=transaction(),request=next.documentRequests.find(item=>item.id===state.id);
+    DocumentWorkflow.submitToAdmin(next,currentUser,request,today());
+    if(!saveDatabase(next))throw new Error('Dokumen belum terkirim. Silakan coba kembali.');
+    state.dirty=false;navigate('requests');toast('Dokumen berhasil dikirim ke admin untuk diperiksa.');
+  } catch(error){toast(error.message,true);}
+  finally{state.saving=false;document.querySelectorAll('[data-workbook-action]').forEach(button=>button.disabled=false);}
+}
+
+async function continueWorkbookApproval(){
+  const state=activeWorkbook,doc=workbookDocument(true);
+  if(!doc||!doc.adminReviewRequired||!isAdmin()||doc.status!=='admin_review'||state.saving)return;
+  if(state.dirty&&!await saveWorkbookChanges())return;
+  if(activeWorkbook!==state||!workbookDocument(true)||state.dirty)return;
+  navigate('request-'+state.id);
 }
 
 async function downloadWorkbook(id) {
@@ -110,7 +135,7 @@ async function downloadWorkbook(id) {
   } catch (failure) { toast(failure.message, true); }
 }
 
-document.addEventListener('focusin', event => { if (event.target.matches('.workbook-cell') && workbookDocument()) { const reference = event.target.dataset.cell; if (activeWorkbook.selected !== reference) { activeWorkbook.range = reference; activeWorkbook.anchor = reference; } selectWorkbookCell(reference); event.target.value = WorkbookEngine.value(activeWorkbook.book, activeWorkbook.book.sheets[activeWorkbook.sheetIndex].cells.get(event.target.dataset.cell)); } });
+document.addEventListener('focusin', event => { if (event.target.matches('.workbook-cell') && workbookDocument()) { const reference = event.target.dataset.cell; if (activeWorkbook.selected !== reference) { const sheet=activeWorkbook.book.sheets[activeWorkbook.sheetIndex],merge=sheet.merges.find(item=>item.start===reference);activeWorkbook.range = workbookMergedSelection(merge,reference); activeWorkbook.anchor = reference; } selectWorkbookCell(reference); event.target.value = WorkbookEngine.value(activeWorkbook.book, activeWorkbook.book.sheets[activeWorkbook.sheetIndex].cells.get(event.target.dataset.cell)); } });
 document.addEventListener('input', event => {
   if (!event.target.matches('.workbook-cell, #workbook-cell-value')) return;
   const reference = event.target.dataset.cell || activeWorkbook?.selected;
@@ -132,6 +157,8 @@ document.addEventListener('click', event => {
   if (tab && workbookDocument()) { activeWorkbook.selectedPicture=null;activeWorkbook.sheetIndex = Number(tab.dataset.sheetIndex); activeWorkbook.selected = 'A1'; activeWorkbook.range = 'A1'; activeWorkbook.historyGroup = null; const grid = document.getElementById('workbook-grid'); grid.scrollTop = 0; grid.scrollLeft = 0; renderWorkbookSheet(); restoreWorkbookFocus(); return; }
   const button = event.target.closest('[data-workbook-action]');
   if (button?.dataset.workbookAction === 'save') saveWorkbookChanges();
+  if (button?.dataset.workbookAction === 'submit-admin') submitWorkbookToAdmin();
+  if (button?.dataset.workbookAction === 'approval') continueWorkbookApproval();
   if (button?.dataset.workbookAction === 'download' && workbookDocument()) downloadWorkbook(activeWorkbook.id);
 });
 document.addEventListener('paste', event => {

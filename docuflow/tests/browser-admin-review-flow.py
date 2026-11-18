@@ -1,0 +1,58 @@
+"""Admin sets the number, selects any approvers, and publishes the reviewed PDF."""
+import importlib.util,re,zipfile
+from pathlib import Path
+from playwright.sync_api import sync_playwright,expect
+
+spec=importlib.util.spec_from_file_location('fixture',Path(__file__).with_name('browser-workbook.py'))
+f=importlib.util.module_from_spec(spec);spec.loader.exec_module(f)
+pdf_spec=importlib.util.spec_from_file_location('request_pdf',Path(__file__).with_name('browser-request-pdf.py'))
+pdf_test=importlib.util.module_from_spec(pdf_spec);pdf_spec.loader.exec_module(pdf_test)
+BASE='http://127.0.0.1:4173/'
+
+def sign_in(page,email):
+    page.locator('#email').fill(email);page.locator('#password').fill('user123');page.get_by_role('button',name='Masuk ke workspace').click()
+
+def run():
+ with sync_playwright() as p:
+  browser=p.chromium.launch(channel='chromium');page=browser.new_page(viewport={'width':1440,'height':900},accept_downloads=True);page.set_default_timeout(12000)
+  errors=[];page.on('pageerror',lambda error:errors.append(str(error)))
+  page.goto(BASE);f.login(page,'admin');f.upload(page,f.WORKBOOK)
+  page.evaluate('''()=>{const next=transaction(),category=next.documentCategories.find(c=>c.id==='legacy-uncategorized');category.name='Perakitan';category.code='WI-001';next.departmentAuthorizations.qa=[];next.users.push({id:'u-reviewer2',name:'Sari Reviewer',email:'sari@example.test',password:'user123',role:'user',departmentId:'qa',sectionId:'qa-inspection'});next.users.push({id:'u-unassigned',name:'Tidak Ditugaskan',email:'other@example.test',password:'user123',role:'user',departmentId:'qa',sectionId:'qa-inspection'});if(!saveDatabase(next))throw Error('fixture');}''')
+  f.logout(page);f.login(page,'user');page.goto(BASE+'#create');expect(page.get_by_label('Judul Dokumen',exact=False)).to_be_visible();expect(page.locator('.document-template-notice')).to_have_count(0);expect(page.locator('#doc-number')).to_have_count(0);page.locator('#doc-title').fill('IK Review Admin');f.choose(page,'Jenis dokumen','Instruksi Kerja')
+  page.get_by_role('combobox',name='Kategori dokumen',exact=True).click();expect(page.get_by_role('option',name='Perakitan',exact=True)).to_be_visible();page.get_by_role('option',name='Perakitan',exact=True).click()
+  page.get_by_role('button',name='Simpan Dokumen',exact=True).click();expect(page).to_have_url(re.compile('#workbook-'));expect(page.locator('.workbook-cell[data-cell="J4"]')).to_be_visible();request_id=page.url.split('#workbook-')[1]
+  page.locator('.workbook-cell[data-cell="J4"]').fill('Dari pengguna');page.get_by_role('button',name='Submit ke Admin',exact=True).click();expect(page).to_have_url(re.compile('#requests$'));assert page.evaluate('(id)=>db.documentRequests.find(r=>r.id===id).status',request_id)=='admin_review'
+  f.logout(page);f.login(page,'admin');page.goto(BASE+'#requests');row=page.get_by_role('row').filter(has_text='IK Review Admin');expect(row).to_be_visible();row.get_by_role('button',name='Edit Excel',exact=True).click();expect(page.locator('.workbook-cell[data-cell="J4"]')).to_have_value('Dari pengguna')
+  page.locator('.workbook-cell[data-cell="J4"]').fill('Revisi admin');page.get_by_role('button',name='Lanjutkan ke Approval',exact=True).click();expect(page).to_have_url(re.compile('#request-'))
+  expect(page.locator('.request-summary')).to_contain_text('Belum ditetapkan');expect(page.get_by_role('heading',name='Kembalikan untuk Perbaikan',exact=True)).to_have_count(0);expect(page.get_by_role('heading',name='Persetujuan',exact=True)).to_have_count(0);expect(page.get_by_role('heading',name='Riwayat Permintaan',exact=True)).to_have_count(0)
+  with page.expect_download() as excel_download:page.locator('.request-summary').get_by_role('button',name='Unduh Excel',exact=True).click()
+  assert excel_download.value.suggested_filename.endswith('.xlsx')
+  with zipfile.ZipFile(excel_download.value.path()) as workbook:assert any(b'Revisi admin' in workbook.read(name) for name in workbook.namelist() if name.endswith('.xml'))
+  assert not page.locator('#approval-number').evaluate('(input)=>input.checkValidity()')
+  page.get_by_role('button',name='Edit Informasi',exact=True).click();expect(page.get_by_label('Judul Dokumen',exact=False)).to_be_visible();expect(page.locator('.document-template-notice')).to_have_count(0);page.locator('#doc-number').fill('IK/QAS/CUSTOM-009');page.get_by_role('button',name='Simpan Draft',exact=True).click();page.get_by_role('row').filter(has_text='IK Review Admin').get_by_role('link',name='IK Review Admin',exact=True).click();expect(page.locator('.request-summary')).to_contain_text('IK/QAS/CUSTOM-009')
+  select=page.get_by_label('Tambah approver',exact=True);expect(select.locator('option[value="u-user"]')).to_be_enabled();expect(select.locator('option[value="u-admin"]')).to_be_enabled();expect(page.locator('#approval-number')).to_have_value('IK/QAS/CUSTOM-009')
+  f.select_approver(page,'u-user');f.select_approver(page,'u-admin');f.select_approver(page,'u-qa');assert page.locator('#request-submit-form').evaluate("form=>new FormData(form).getAll('approverIds')")==['u-user','u-admin','u-qa'];page.get_by_role('button',name='Hapus approver Aditya Pratama',exact=True).click();f.select_approver(page,'u-admin');expect(page.locator('#approver-count')).to_have_text('3 dipilih')
+  page.set_viewport_size({'width':320,'height':800});assert page.evaluate('document.documentElement.scrollWidth<=innerWidth');expect(select).to_be_visible();page.set_viewport_size({'width':1440,'height':900});page.screenshot(path=str(f.ARTIFACTS/'admin-flow-approval.png'),full_page=True)
+  generator=browser.new_page();generator.set_content('<h1>Dokumen review admin</h1>');pdf=generator.pdf()+b' '*(3*1024*1024);generator.close();page.locator('#approval-pdf').set_input_files({'name':'final.pdf','mimeType':'application/pdf','buffer':pdf});existing=page.evaluate('db.documents[0].code');page.locator('#approval-number').fill(existing);keys=f.keys(page);page.get_by_role('button',name='Kirim untuk Persetujuan',exact=True).click();expect(page.locator('#request-error')).to_contain_text('Nomor dokumen sudah digunakan');assert f.keys(page)==keys
+  page.locator('#approval-number').fill('IK/QAS/CUSTOM-009');page.locator('#approval-pdf').set_input_files({'name':'invalid.pdf','mimeType':'application/pdf','buffer':b'not a pdf'});page.get_by_role('button',name='Kirim untuk Persetujuan',exact=True).click();expect(page.locator('#request-error')).to_contain_text('bukan PDF')
+  page.locator('#approval-pdf').set_input_files({'name':'besar.pdf','mimeType':'application/pdf','buffer':b'x'*(5*1024*1024+1)});page.get_by_role('button',name='Kirim untuk Persetujuan',exact=True).click();expect(page.locator('#request-error')).to_contain_text('maksimal 5 MB')
+  page.locator('#approval-pdf').set_input_files({'name':'final.pdf','mimeType':'application/pdf','buffer':pdf});page.get_by_role('button',name='Kirim untuk Persetujuan',exact=True).click();expect(page.locator('.request-summary .request-status')).to_have_text('Menunggu persetujuan')
+  assert page.evaluate('''async id=>{const r=db.documentRequests.find(x=>x.id===id),bytes=await WorkbookStore.get(r.attachment.storageKey),other=db.users.find(u=>u.id==='u-unassigned');return r.code==='IK/QAS/CUSTOM-009'&&r.adminNumberSet&&r.submittedWorkbookKey===r.workbookKey&&r.submittedAttachment===JSON.stringify(r.attachment)&&bytes.byteLength>3*1024*1024&&!DocumentWorkflow.canRead(db,other,r);}''',request_id)
+  # An assigned reviewer without category access can return only this request.
+  f.logout(page);sign_in(page,'budi@docuflow.id');page.goto(BASE+'#approvals');page.get_by_role('row').filter(has_text='IK Review Admin').get_by_role('link',name='IK Review Admin',exact=True).click();page.locator('#review-note').fill('Tolong koreksi');page.get_by_role('button',name='Kembalikan untuk Perbaikan',exact=True).click();expect(page).to_have_url(re.compile('#approvals$'));page.goto(BASE+'#request-'+request_id);expect(page.get_by_role('heading',name='Permintaan tidak tersedia',exact=True)).to_be_visible()
+  f.logout(page);f.login(page,'user');page.goto(BASE+'#request-'+request_id);page.get_by_role('link',name='Edit Excel',exact=True).click();page.get_by_role('button',name='Submit ke Admin',exact=True).click();expect(page).to_have_url(re.compile('#requests$'))
+  f.logout(page);f.login(page,'admin');page.goto(BASE+'#request-'+request_id);expect(page.locator('#approval-number')).to_have_value('IK/QAS/CUSTOM-009');f.select_approver(page,'u-user');f.select_approver(page,'u-admin');f.select_approver(page,'u-qa');page.locator('#approval-pdf').set_input_files({'name':'final.pdf','mimeType':'application/pdf','buffer':pdf});page.get_by_role('button',name='Kirim untuk Persetujuan',exact=True).click();expect(page.locator('.request-summary .request-status')).to_have_text('Menunggu persetujuan')
+  # Sender and author are permitted to approve alongside a cross-department reviewer.
+  pdf_test.sign_and_approve(page,'IK Review Admin')
+  f.logout(page);f.login(page,'user');pdf_test.sign_and_approve(page,'IK Review Admin')
+  f.logout(page);sign_in(page,'budi@docuflow.id');page.goto(BASE+'#request-'+request_id);expect(page.get_by_role('button',name='Lihat PDF - Putaran 1',exact=True)).to_have_count(0)
+  with page.expect_popup() as popup:page.get_by_role('button',name='Lihat PDF Final',exact=True).click()
+  preview=popup.value;expect(preview.locator('#document-title')).to_contain_text('IK Review Admin');preview.close();pdf_test.sign_and_approve(page,'IK Review Admin');page.goto(BASE+'#request-'+request_id);expect(page.locator('.request-summary .request-status')).to_have_text('Siap diterbitkan')
+  f.logout(page);f.login(page,'admin');page.goto(BASE+'#request-'+request_id);page.get_by_role('button',name='Terbitkan Dokumen',exact=True).click();expect(page.locator('.request-summary .request-status')).to_have_text('Sudah diterbitkan')
+  assert page.evaluate('''async id=>{const r=db.documentRequests.find(x=>x.id===id),d=db.documents.find(x=>x.requestId===id),b=await WorkbookEngine.open(await WorkbookStore.get(d.workbookKey)),approver=db.users.find(u=>u.id==='u-qa');return d.code==='IK/QAS/CUSTOM-009'&&d.workbookKey===r.submittedWorkbookKey&&WorkbookEngine.value(b,b.sheets[0].cells.get('J4'))==='Revisi admin'&&!DocumentAccess.canRead(db,approver,d);}''',request_id)
+  page.goto(BASE+'#documents');row=page.get_by_role('row').filter(has_text='IK Review Admin');assert row.get_by_role('button',name='View IK Review Admin').get_attribute('data-action')=='preview-pdf';row.get_by_role('button',name='IK Review Admin',exact=True).click()
+  with page.expect_download() as download:page.get_by_role('button',name='Unduh',exact=True).click()
+  final_pdf=Path(download.value.path()).read_bytes();assert final_pdf.startswith(b'%PDF-') and final_pdf!=pdf;assert not errors,errors;browser.close()
+ print('PASS admin-assigned number, unrestricted approvers, review, PDF and publication')
+
+if __name__=='__main__':run()

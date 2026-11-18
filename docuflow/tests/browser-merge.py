@@ -1,4 +1,4 @@
-"""Excel merge keeps the physical top-left cell; keyboard Undo restores discarded data."""
+"""Merge preserves a sole value and keyboard Undo restores all cells."""
 import importlib.util,zipfile,xml.etree.ElementTree as ET
 from pathlib import Path
 spec=importlib.util.spec_from_file_location('ux',Path(__file__).with_name('browser-editor-ux.py'));ux=importlib.util.module_from_spec(spec);spec.loader.exec_module(ux)
@@ -42,9 +42,13 @@ def run():
         page.locator('.workbook-cell[data-cell="A8"]').focus();page.keyboard.press('Control+y');expect(page.locator('.workbook-cell[data-cell="A9"]')).to_have_count(0)
         page.keyboard.press('Control+z');expect(page.locator('.workbook-cell[data-cell="A9"]')).to_have_value('2')
         page.keyboard.press('Control+Shift+z');expect(page.locator('.workbook-cell[data-cell="A9"]')).to_have_count(0);page.keyboard.press('Control+z')
-        # A blank physical top-left stays blank, regardless of drag direction.
-        ux.go(page,'K5');page.locator('.workbook-cell[data-cell="K5"]').fill('Tambah kan\napa ini');ux.drag(page,'K5','K3');page.get_by_role('button',name='Gabungkan sel',exact=True).click()
-        expect(page.locator('.workbook-cell[data-cell="K3"]')).to_have_value('');page.keyboard.press('Control+z');expect(page.locator('.workbook-cell[data-cell="K5"]')).to_have_value('Tambah kan\napa ini')
+        # A sole value survives even when it starts away from the top-left corner.
+        ux.go(page,'K5');page.locator('.workbook-cell[data-cell="K5"]').fill('Tambah kan\napa ini');ux.go(page,'K3:K5');page.get_by_role('button',name='Gabungkan sel',exact=True).click()
+        expect(page.locator('.workbook-cell[data-cell="K3"]')).to_have_value('Tambah kan\napa ini');page.keyboard.press('Control+z');expect(page.locator('.workbook-cell[data-cell="K5"]')).to_have_value('Tambah kan\napa ini')
+        page.get_by_role('spinbutton',name='Zoom lembar kerja (%)',exact=True).fill('55');page.get_by_role('spinbutton',name='Zoom lembar kerja (%)',exact=True).press('Enter');ux.go(page,'T13');page.locator('.workbook-cell[data-cell="T13"]').fill('AAA');ux.go(page,'P13:W14');page.get_by_role('button',name='Gabungkan sel',exact=True).click();expect(page.locator('.workbook-cell[data-cell="P13"]')).to_have_value('AAA');expect(page.locator('.workbook-cell[data-cell="P13"]')).to_be_visible();page.keyboard.press('Control+z');expect(page.locator('.workbook-cell[data-cell="T13"]')).to_have_value('AAA');page.keyboard.press('Control+y');expect(page.locator('.workbook-cell[data-cell="P13"]')).to_have_value('AAA');page.get_by_role('spinbutton',name='Zoom lembar kerja (%)',exact=True).fill('100');page.get_by_role('spinbutton',name='Zoom lembar kerja (%)',exact=True).press('Enter')
+        ux.go(page,'M20:N20');page.get_by_role('button',name='Gabungkan sel',exact=True).click();expect(page.locator('.workbook-cell[data-cell="M20"]')).to_have_value('INSTRUKSI KERJA');moved=exported(page);assert cell_xml(moved,'M20').attrib['t']=='s';page.keyboard.press('Control+z');expect(page.locator('.workbook-cell[data-cell="N20"]')).to_have_value('INSTRUKSI KERJA')
+        ux.go(page,'O20:P20');page.get_by_role('button',name='Gabungkan sel',exact=True).click();expect(page.locator('.workbook-cell[data-cell="O20"]')).to_have_value('0');page.keyboard.press('Control+z')
+        ux.go(page,'Q20:R20');page.get_by_role('button',name='Gabungkan sel',exact=True).click();expect(page.locator('.workbook-cell[data-cell="Q20"]')).to_have_value('Catatan penting');moved=exported(page);assert len(cell_xml(moved,'Q20').findall(f'.//{{{fixture.NS}}}r'))==2;page.keyboard.press('Control+z')
         for address,master,value in [('N20:N22','N20','INSTRUKSI KERJA'),('P20:P22','P20','0'),('R20:R22','R20','Catatan penting')]:
             ux.go(page,address);page.get_by_role('button',name='Gabungkan sel',exact=True).click();expect(page.locator(f'.workbook-cell[data-cell="{master}"]')).to_have_value(value)
         typed=exported(page);shared=cell_xml(typed,'N20');assert shared.attrib['t']=='s' and shared.find(f'{{{fixture.NS}}}v').text=='0'
@@ -56,7 +60,7 @@ def run():
         font=page.get_by_role('combobox',name='Font',exact=True);font.focus();before=page.evaluate('activeWorkbook.undo.length');font.press('Control+z');assert page.evaluate('activeWorkbook.undo.length')==before
         page.keyboard.press('Escape');ux.go(page,'U4');page.locator('.workbook-cell[data-cell="U4"]').fill('Undo lintas sheet');expect(page.locator('.workbook-cell[data-cell="U4"]')).to_have_value('Undo lintas sheet');page.get_by_role('tab',name='Catatan',exact=True).click();page.keyboard.press('Control+z');expect(page.locator('.workbook-cell[data-cell="U4"]')).to_have_value('');page.keyboard.press('Control+y');expect(page.locator('.workbook-cell[data-cell="U4"]')).to_have_value('Undo lintas sheet');expect(page.locator('.workbook-cell[data-cell="U4"]')).to_be_focused()
         ux.go(page,'J4');page.keyboard.press('Control+s');expect(page.locator('#workbook-save-status')).to_have_text('Semua perubahan tersimpan')
-        page.reload();ux.go(page,'N20');expect(page.locator('.workbook-cell[data-cell="N20"]')).to_have_value('INSTRUKSI KERJA')
+        page.reload();ux.go(page,'N20');expect(page.locator('.workbook-cell[data-cell="N20"]')).to_have_value('INSTRUKSI KERJA');ux.go(page,'P13');expect(page.locator('.workbook-cell[data-cell="P13"]')).to_have_value('AAA')
         # Partial shared/array formulas must not leave definitions orphaned outside the merge.
         page.get_by_role('tab',name='Catatan',exact=True).click();ux.go(page,'L3:M3');page.get_by_role('button',name='Gabungkan sel',exact=True).click();expect(page.locator('#toast')).to_contain_text('rumus bersama');expect(page.locator('.workbook-cell[data-cell="M3"]')).to_have_value('2')
         ux.go(page,'L3:M5');page.get_by_role('button',name='Gabungkan sel',exact=True).click();expect(page.locator('.workbook-cell[data-cell="M3"]')).to_have_count(0);page.keyboard.press('Control+z');expect(page.locator('.workbook-cell[data-cell="M4"]')).to_have_value('3')
@@ -65,7 +69,7 @@ def run():
         restored=exported(page);sheet2=ET.fromstring(restored['xl/worksheets/sheet2.xml']);assert sheet2.find(f'.//{{{fixture.NS}}}c[@r="M3"]/{{{fixture.NS}}}f').text=='A8+1';assert sheet2.find(f'.//{{{fixture.NS}}}c[@r="P3"]/{{{fixture.NS}}}f').attrib['t']=='array'
         page.get_by_role('button',name='Simpan Perubahan',exact=True).click();expect(page.locator('#workbook-save-status')).to_have_text('Semua perubahan tersimpan')
         page.goto(route+'?view');expect(page.locator('.excel-ribbon')).to_have_count(0);cell=page.locator('.workbook-cell[data-cell="A8"]');cell.focus();page.keyboard.press('Control+z');page.keyboard.press('Control+b');page.keyboard.press('Control+s');expect(cell).to_have_value('1');expect(cell).to_have_attribute('readonly','')
-        assert not errors,errors;print('PASS Excel top-left/blank merge, formula deletion+calcChain export, full Undo/Redo, Ctrl+Z/Y/ShiftZ/S/B/I/U, native font input and read-only guard',flush=True)
+        assert not errors,errors;print('PASS sole-value merge, original styles, formula deletion+calcChain export, full Undo/Redo, shortcuts and read-only guard',flush=True)
         page.once('dialog',lambda dialog:dialog.accept());browser.close()
 
 if __name__=='__main__':run()

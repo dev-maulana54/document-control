@@ -27,8 +27,12 @@ WORKBOOK=original.getvalue()
 from playwright.sync_api import sync_playwright,expect
 import re,json
 def choose(page,label,option):
+    if label=='Kategori dokumen':option=page.evaluate('(value)=>db.documentCategories.find(category=>category.code===value)?.name||value',option)
     page.get_by_role('combobox',name=label,exact=True).click()
     page.get_by_role('option').filter(has_text=option).first.click()
+def select_approver(page,user_id):
+    if not page.locator('#selected-approvers input[name="approverIds"]').evaluate_all('(inputs,id)=>inputs.some(input=>input.value===id)',user_id):
+        page.locator('#approver-select').select_option(value=user_id)
 def login(page,role):
     page.locator("#login-form").wait_for()
     # Demo data belongs to isolated browser tests; production starts empty.
@@ -39,12 +43,13 @@ def login(page,role):
 def save_and_open(page,label='Simpan Dokumen'):
     title=page.locator('#doc-title').input_value()
     page.get_by_role('button',name=label,exact=True).click()
-    page.wait_for_function("location.hash==='#requests'||Boolean(document.getElementById('document-error')?.textContent)")
+    page.wait_for_function("location.hash==='#requests'||location.hash.startsWith('#workbook-')||Boolean(document.getElementById('document-error')?.textContent)")
+    if page.url.split('#')[-1].startswith('workbook-'):return
     if page.url.split('#')[-1]!='requests':return
     row=page.get_by_role('row').filter(has_text=title).first
     edit=row.get_by_role('button',name='Edit Excel',exact=True)
     if edit.count() and edit.is_enabled():edit.click()
-    else:row.get_by_role('link',name='Buka Permintaan',exact=True).click()
+    else:row.get_by_role('link',name=title,exact=True).click()
 
 def logout(page):
     if not page.locator('[data-action="profile"]').count():page.locator('.workbook-heading a, a[href="#master"]').first.click()
@@ -71,8 +76,8 @@ def keys(page):
 
 def approve_and_publish(page,request_id):
     page.goto('http://127.0.0.1:4173/#request-'+request_id)
-    page.locator('[name="approverIds"][value="u-admin"]').check()
-    page.locator('[name="approverIds"][value="u-qa"]').check()
+    select_approver(page,'u-admin')
+    select_approver(page,'u-qa')
     page.get_by_role('button',name='Ajukan Persetujuan',exact=True).click()
     expect(page.locator('.request-summary .request-status')).to_have_text('Menunggu persetujuan')
     logout(page)
@@ -351,7 +356,7 @@ def test_expansion_flow():
             page.set_viewport_size({'width':width,'height':1000});page.wait_for_timeout(100);assert page.evaluate('document.documentElement.scrollWidth<=innerWidth'),width
         page.screenshot(path=str(ARTIFACTS/'excel-expanded-preview.png'),full_page=True,animations='disabled')
         request_id=document_url.split('#workbook-')[1];page.goto('http://127.0.0.1:4173/#request-'+request_id)
-        page.locator('[name="approverIds"][value="u-admin"]').check();page.locator('[name="approverIds"][value="u-qa"]').check();page.get_by_role('button',name='Ajukan Persetujuan',exact=True).click();expect(page.locator('.request-summary .request-status')).to_have_text('Menunggu persetujuan')
+        select_approver(page,'u-admin');select_approver(page,'u-qa');page.get_by_role('button',name='Ajukan Persetujuan',exact=True).click();expect(page.locator('.request-summary .request-status')).to_have_text('Menunggu persetujuan')
         logout(page);page.locator('#email').fill('budi@docuflow.id');page.locator('#password').fill('user123');page.get_by_role('button',name='Masuk ke workspace').click();page.goto(document_url)
         expect(page.locator('.workbook-sheet')).to_have_attribute('aria-rowcount','1001');expect(page.locator('.workbook-sheet')).to_have_attribute('aria-colcount','1001');expect(page.locator('.excel-ribbon')).to_have_count(0)
         assert not errors,errors

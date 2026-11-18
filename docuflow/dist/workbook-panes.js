@@ -24,14 +24,36 @@ function syncWorkbookSheetView(){
 }
 
 function workbookFreezeControls(){return `<button type="button" class="ribbon-large" data-freeze-menu aria-haspopup="menu" aria-expanded="false" aria-label="Freeze Panes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2" y="3" width="20" height="18"/><path d="M2 9h20M8 3v18" stroke-width="2.5"/></svg><span>Freeze Panes ▾</span></button>`;}
+function workbookBorderSvg(edges,width,height,offsetX,offsetY,zoom){
+  const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg'),groups=new Map(),snap=value=>Math.round(value*zoom)/zoom;
+  svg.setAttribute('width','100%');svg.setAttribute('height','100%');svg.setAttribute('viewBox',`0 0 ${width} ${height}`);svg.setAttribute('aria-hidden','true');svg.style.display='block';
+  for(const edge of edges){
+    const match=edge.border.match(/^([\d.]+)px (\S+) (.+)$/);if(!match)continue;
+    if(Math.max(edge.x1,edge.x2)<offsetX||Math.min(edge.x1,edge.x2)>offsetX+width||Math.max(edge.y1,edge.y2)<offsetY||Math.min(edge.y1,edge.y2)>offsetY+height)continue;
+    const style=match[2],thickness=Math.max((style==='double'?3:1)/zoom,Number(match[1])),color=match[3],key=[thickness,style,color].join('|');
+    if(!groups.has(key))groups.set(key,{thickness,style,color,segments:new Set()});
+    const horizontal=edge.y1===edge.y2,x1=snap(edge.x1-offsetX),y1=snap(edge.y1-offsetY),x2=snap(edge.x2-offsetX),y2=snap(edge.y2-offsetY);
+    for(const shift of style==='double'?[-thickness/3,thickness/3]:[0])groups.get(key).segments.add(`M${snap(x1+(horizontal?0:shift))} ${snap(y1+(horizontal?shift:0))}L${snap(x2+(horizontal?0:shift))} ${snap(y2+(horizontal?shift:0))}`);
+  }
+  // One vector path per line style replaces thousands of layout objects.
+  for(const {thickness,style,color,segments} of groups.values()){
+    const path=document.createElementNS(ns,'path');path.classList.add('workbook-native-border-line');path.setAttribute('d',[...segments].join(''));path.setAttribute('fill','none');path.setAttribute('stroke',color);path.setAttribute('stroke-width',style==='double'?thickness/3:thickness);path.setAttribute('shape-rendering','crispEdges');
+    if(style==='dashed')path.setAttribute('stroke-dasharray',`${thickness*4} ${thickness*2}`);
+    if(style==='dotted'){path.setAttribute('stroke-dasharray',`0 ${thickness*2}`);path.setAttribute('stroke-linecap','round');}
+    svg.appendChild(path);
+  }
+  return svg;
+}
 function paintWorkbookNativeBorders(){
   const layout=activeWorkbook?.gridLayout;if(!layout?.borderEdges)return;const {grid,x,y,freeze,borderEdges,zoom}=layout,canvas=grid.querySelector('.workbook-canvas');
-  const paintKey=[layout.borderVersion,grid.scrollLeft,grid.scrollTop,grid.clientWidth,grid.clientHeight].join(':');if(layout.borderPaintKey===paintKey)return;layout.borderPaintKey=paintKey;
+  const stationary=!freeze.rows&&!freeze.columns;
+  const paintKey=stationary?String(layout.borderVersion):[layout.borderVersion,grid.scrollLeft,grid.scrollTop,grid.clientWidth,grid.clientHeight].join(':');if(layout.borderPaintKey===paintKey)return;layout.borderPaintKey=paintKey;
   canvas.querySelectorAll('.workbook-native-borders').forEach(n=>n.remove());
-  const xs=freeze.columns?[[x[0],Math.min(x[freeze.columns],grid.clientWidth),grid.scrollLeft,true],[x[freeze.columns],grid.clientWidth,0,false]]:[[x[0],grid.clientWidth,0,false]],ys=freeze.rows?[[y[0],Math.min(y[freeze.rows],grid.clientHeight),grid.scrollTop,true],[y[freeze.rows],grid.clientHeight,0,false]]:[[y[0],grid.clientHeight,0,false]];
-  const snap=value=>Math.round(value*zoom)/zoom;
-  for(const [left,right,dx,fx] of xs)for(const [top,bottom,dy,fy] of ys){if(right<=left||bottom<=top)continue;const layer=document.createElement('div');layer.className='workbook-native-borders';layer.setAttribute('aria-hidden','true');Object.assign(layer.style,{left:grid.scrollLeft+left+'px',top:grid.scrollTop+top+'px',width:right-left+'px',height:bottom-top+'px',overflow:'hidden',zIndex:fx||fy?'23':'4'});
-    for(const edge of borderEdges){const match=edge.border.match(/^([\d.]+)px (\S+) (.+)$/);if(!match)continue;const [,width,lineStyle,color]=match,horizontal=edge.y1===edge.y2,offsetX=grid.scrollLeft+left-dx,offsetY=grid.scrollTop+top-dy;if(Math.max(edge.x1,edge.x2)<offsetX||Math.min(edge.x1,edge.x2)>offsetX+right-left||Math.max(edge.y1,edge.y2)<offsetY||Math.min(edge.y1,edge.y2)>offsetY+bottom-top)continue;const line=document.createElement('div'),thickness=Math.max(1/zoom,Number(width));line.className='workbook-native-border-line';Object.assign(line.style,{position:'absolute',left:snap(edge.x1-offsetX)-(horizontal?0:thickness/2)+'px',top:snap(edge.y1-offsetY)-(horizontal?thickness/2:0)+'px',width:horizontal?edge.x2-edge.x1+'px':'0px',height:horizontal?'0px':edge.y2-edge.y1+'px',[horizontal?'borderTop':'borderLeft']:thickness+'px '+lineStyle+' '+color});layer.appendChild(line);}
+  // Unfrozen borders travel with the worksheet. Paint the buffered window once
+  // instead of rebuilding thousands of line elements on every scroll frame.
+  const xs=stationary?[[x[layout.firstCol-1],x[layout.lastCol],grid.scrollLeft,false]]:freeze.columns?[[x[0],Math.min(x[freeze.columns],grid.clientWidth),grid.scrollLeft,true],[x[freeze.columns],grid.clientWidth,0,false]]:[[x[0],grid.clientWidth,0,false]],ys=stationary?[[y[layout.firstRow-1],y[layout.lastRow],grid.scrollTop,false]]:freeze.rows?[[y[0],Math.min(y[freeze.rows],grid.clientHeight),grid.scrollTop,true],[y[freeze.rows],grid.clientHeight,0,false]]:[[y[0],grid.clientHeight,0,false]];
+  for(const [left,right,dx,fx] of xs)for(const [top,bottom,dy,fy] of ys){if(right<=left||bottom<=top)continue;const layer=document.createElement('div');layer.className='workbook-native-borders';layer.setAttribute('aria-hidden','true');Object.assign(layer.style,{left:(stationary?left:grid.scrollLeft+left)+'px',top:(stationary?top:grid.scrollTop+top)+'px',width:right-left+'px',height:bottom-top+'px',overflow:'hidden',zIndex:fx||fy?'23':'4'});
+    layer.appendChild(workbookBorderSvg(borderEdges,right-left,bottom-top,grid.scrollLeft+left-dx,grid.scrollTop+top-dy,zoom));
     canvas.appendChild(layer);
   }
 }

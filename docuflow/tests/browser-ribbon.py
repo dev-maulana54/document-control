@@ -39,7 +39,7 @@ def run():
         with zipfile.ZipFile(download.value.path()) as z:
             ns=fixture.NS;first=ET.fromstring(z.read('xl/worksheets/sheet1.xml'));second=ET.fromstring(z.read('xl/worksheets/sheet2.xml'))
             assert first.find(f'{{{ns}}}dimension').attrib['ref']=='A1:ALL1000';assert ''.join(first.find(f'.//{{{ns}}}c[@r="ALL1000"]').itertext())=='Sel terakhir 1000 × 1000'
-            assert first.find(f'.//{{{ns}}}row[@r="4"]').attrib['ht']=='36';assert any(col.attrib['min']=='10' and col.attrib['width']=='20' for col in first.findall(f'.//{{{ns}}}col'))
+            assert first.find(f'.//{{{ns}}}row[@r="4"]').attrib['ht']=='36';assert any(col.attrib['min']=='10' and abs(float(col.attrib['width'])-20.7109375)<0.000001 for col in first.findall(f'.//{{{ns}}}col'))
             assert ''.join(second.find(f'.//{{{ns}}}c[@r="C1"]').itertext())=='Merged across two axes';assert second.find(f'.//{{{ns}}}mergeCell').attrib['ref']=='C1:AB150'
             assert first.find(f'.//{{{ns}}}c[@r="A12"]/{{{ns}}}f').text=='SUM(A8:A9)';assert z.read('xl/media/image1.png')==fixture.parts['xl/media/image1.png']
         # Tab traverses logical columns past the mounted window, and wraps at 1000.
