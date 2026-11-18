@@ -123,6 +123,6 @@ function syncDocumentCategories(form) {
   const select=form?.querySelector('#doc-category'),type=form?.querySelector('#doc-type')?.value;
   if(!select || !type)return;
   const selected=select.value, categories=assignableCategories().filter(category=>DocumentCategories.matches(db,category,type));
-  select.innerHTML='<option value="">Pilih kategori dokumen</option>'+categories.map(category=>`<option value="${esc(category.id)}" ${category.id===selected?'selected':''}>${esc(category.code)}${category.name===category.code?'':' - '+esc(category.name)}</option>`).join('');
+  select.innerHTML='<option value="">Pilih kategori dokumen</option>'+categories.map(category=>`<option value="${esc(category.id)}" ${category.id===selected?'selected':''}>${esc(category.name)}</option>`).join('');
   refreshSearchSelect(select);
 }
