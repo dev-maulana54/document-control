@@ -196,10 +196,9 @@ function openApprovalPdf(id) {
       if(!page||p.page>100)throw Error('Halaman PDF tidak tersedia.');
       const box=page.getCropBox(),angle=((page.getRotation().angle%360)+360)%360;
       if(![0,90,180,270].includes(angle)||p.x<box.x||p.y<box.y||p.x>box.x+box.width||p.y>box.y+box.height)throw Error('Posisi tanda tangan berada di luar halaman.');
-      const image=await pdf.embedPng(signature), scale=Math.min(120/image.width,50/image.height,Math.min(box.width,box.height)*.4/image.width,Math.min(box.width,box.height)*.2/image.height), w=image.width*scale,h=image.height*scale;
-      const radians=angle*Math.PI/180,c=Math.round(Math.cos(radians)),s=Math.round(Math.sin(radians)),halfX=(Math.abs(c)*w+Math.abs(s)*h)/2,halfY=(Math.abs(s)*w+Math.abs(c)*h)/2;
-      const cx=Math.max(box.x+halfX,Math.min(box.x+box.width-halfX,p.x)),cy=Math.max(box.y+halfY,Math.min(box.y+box.height-halfY,p.y));
-      page.drawImage(image,{x:cx-c*w/2+s*h/2,y:cy-s*w/2-c*h/2,width:w,height:h,rotate:PDFLib.degrees(angle)});
+      const image=await pdf.embedPng(signature),geometry=PdfSignatureGeometry.place(image.width,image.height,p,box,angle),w=geometry.width,h=geometry.height;
+      const radians=angle*Math.PI/180,c=Math.round(Math.cos(radians)),s=Math.round(Math.sin(radians));
+      page.drawImage(image,{x:geometry.x-c*w/2+s*h/2,y:geometry.y-s*w/2-c*h/2,width:w,height:h,rotate:PDFLib.degrees(angle)});
       const output=await pdf.save();if(output.length>5*1024*1024)throw Error('PDF bertanda tangan melebihi batas 5 MB.');
       if(db!==snapshot||currentUser?.id!==actorId||currentUser.signatureKey!==signatureKey||!pending(db.documentRequests.find(item=>item.id===id)))throw Error('Data berubah. Buka kembali persetujuan.');
       key='approval-pdf-'+uid();await WorkbookStore.put(key,output.buffer.slice(output.byteOffset,output.byteOffset+output.byteLength));
@@ -207,7 +206,7 @@ function openApprovalPdf(id) {
       const next=transaction(), updated=next.documentRequests.find(item=>item.id===id);
       DocumentWorkflow.decide(next,currentUser,updated,'approved','',today());
       updated.signedAttachment={name:current.attachment.name,type:'application/pdf',size:output.length,storageKey:key};
-      const review=DocumentWorkflow.currentReviews(updated).find(item=>item.userId===actorId);review.signature={page:p.page,x:p.x,y:p.y,signatureKey};
+      const review=DocumentWorkflow.currentReviews(updated).find(item=>item.userId===actorId);review.signature={page:p.page,x:geometry.x,y:geometry.y,width:w,height:h,percent:geometry.percent,signatureKey};
       if(!saveDatabase(next))throw Error('Persetujuan belum tersimpan.');
       key=null;if(current.signedAttachment?.storageKey)releaseWorkbookFile(current.signedAttachment.storageKey);reply('docuflow:approval-result');render();toast('Persetujuan dan tanda tangan berhasil disimpan.');
       cleanup();

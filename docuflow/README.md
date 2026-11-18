@@ -218,3 +218,6 @@ Alur review admin: kategori formulir menampilkan nama kategori. Pembuat menyeles
 Preview persetujuan PDF menggunakan bitmap sesuai kepadatan piksel layar, menyesuaikan ulang ukuran saat jendela berubah, dan hanya mempertahankan render halaman di dekat area yang terlihat. File PDF unggahan tetap utuh; tanda tangan diposisikan dalam koordinat PDF. Pada Create / Revise, dokumen tetap tercatat dan tampil Selesai setelah admin mengirimnya ke approver, tanpa kolom Persetujuan. Progres serta keputusan sebenarnya tetap ditampilkan di Persetujuan Dokumen; permintaan yang dikembalikan tetap Perlu perbaikan.
 
 Validasi: `python tests/browser-approval-render.py` dan `python tests/browser-admin-review-flow.py`.
+
+
+Pada persetujuan PDF, letakkan tanda tangan lalu tarik pegangan sudut untuk memperbesar atau memperkecilnya. Ukuran juga bisa diatur lewat slider, tombol minus/plus, atau angka 10?300%. Gambar bisa digeser; proporsi serta posisi dalam halaman dipertahankan dan ukuran yang dipilih ikut tersimpan pada PDF. Validasi ukuran diperiksa kembali saat menyimpan. Uji: `node --test tests/signature-geometry.test.cjs` dan `python tests/browser-approval-render.py`.
