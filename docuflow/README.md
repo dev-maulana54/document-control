@@ -213,3 +213,8 @@ Shape dan Text Box: klik dua kali untuk mengetik langsung di dalam objek. Klik d
 Pemilih warna di Home menampilkan Theme Colors dan Standard Colors terlebih dahulu. Gunakan More Colors untuk warna khusus atau kode HEX, dan No Fill untuk menghapus warna isi sel/shape/text box. Palet mendukung keyboard dan layar kecil; pilihan ikut tersimpan dalam XLSX. Pengujian: `python tests/browser-colors.py`.
 
 Alur review admin: kategori formulir menampilkan nama kategori. Pembuat menyelesaikan Excel lalu memilih Submit ke Admin; penyimpanan dilakukan terlebih dahulu. Admin dapat mengedit atau mengembalikan dengan catatan. Setelah review, admin menyimpan Excel sebagai PDF di aplikasi Excel dan mengunggah PDF final maksimal 5 MB sebelum memilih approver. File PDF tersimpan di IndexedDB dan direferensikan oleh versi approval serta dokumen yang diterbitkan. Konversi Excel ke PDF belum otomatis; pemeriksaan kesesuaian PDF dengan Excel dilakukan admin. Data tetap lokal pada browser/origin yang sama dan belum tersinkron antar perangkat.
+
+
+Preview persetujuan PDF menggunakan bitmap sesuai kepadatan piksel layar, menyesuaikan ulang ukuran saat jendela berubah, dan hanya mempertahankan render halaman di dekat area yang terlihat. File PDF unggahan tetap utuh; tanda tangan diposisikan dalam koordinat PDF. Pada Create / Revise, dokumen tetap tercatat dan tampil Selesai setelah admin mengirimnya ke approver, tanpa kolom Persetujuan. Progres serta keputusan sebenarnya tetap ditampilkan di Persetujuan Dokumen; permintaan yang dikembalikan tetap Perlu perbaikan.
+
+Validasi: `python tests/browser-approval-render.py` dan `python tests/browser-admin-review-flow.py`.

@@ -1028,3 +1028,5 @@ dialog.format-cells-modal{width:min(590px,calc(100% - 24px));max-height:90dvh;pa
 .format-border-side-buttons button{flex:1 1 auto}
 .format-cells-form .form-actions{margin-top:14px}
 @media(max-width:480px){dialog.format-cells-modal{padding:12px}.format-cells-panel{padding:12px 8px;min-height:230px}.format-two-columns{grid-template-columns:1fr;gap:5px}.format-color-palette{grid-template-columns:repeat(8,24px)}.format-border-layout{grid-template-columns:1fr}.format-line-list{max-height:110px}}
+
+.request-status.request-done{background:#e5f7ef;color:#13724b}
