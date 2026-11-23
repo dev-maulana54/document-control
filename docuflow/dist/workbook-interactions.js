@@ -65,8 +65,8 @@ document.addEventListener('pointerup',event=>{
 
 function beginWorkbookCellEdit(cell,replace=false){
   if(!cell||cell.readOnly||!workbookDocument(true)||activeWorkbook.saving||activeWorkbook.selected!==cell.dataset.cell)return false;
-  const state=activeWorkbook;if(state.editingCell===cell.dataset.cell)return true;state.editingCell=cell.dataset.cell;state.editingOriginal=WorkbookEngine.value(state.book,state.book.sheets[state.sheetIndex].cells.get(state.editingCell));
-  cell.classList.add('is-editing');if(replace)cell.value='';scheduleWorkbookOverflow();return true;
+  const state=activeWorkbook;if(state.editingCell===cell.dataset.cell)return true;state.editingCell=cell.dataset.cell;state.editingOriginal=WorkbookFormulas.input(state.book,state.book.sheets[state.sheetIndex].cells.get(state.editingCell),WorkbookEngine);
+  cell.classList.add('is-editing');cell.value=replace?'':state.editingOriginal;scheduleWorkbookOverflow();return true;
 }
 function moveWorkbookCell(dx,dy){
   const state=activeWorkbook,sheet=state.book.sheets[state.sheetIndex],point=XlsxPackage.position(state.selected),merge=sheet.merges.find(m=>m.start===state.selected);
@@ -95,5 +95,5 @@ document.addEventListener('beforeinput',event=>{
   if(event.target.matches('.workbook-cell')&&workbookDocument(true)&&activeWorkbook.editingCell!==event.target.dataset.cell){if(beginWorkbookCellEdit(event.target))event.target.select();}
 });
 document.addEventListener('focusout',event=>{
-  if(event.target.matches('.workbook-cell')&&activeWorkbook){event.target.classList.remove('is-editing');if(activeWorkbook.editingCell===event.target.dataset.cell){activeWorkbook.editingCell=null;activeWorkbook.historyGroup=null;}}
+  if(event.target.matches('.workbook-cell')&&activeWorkbook){event.target.value=WorkbookFormat.display(activeWorkbook.book,activeWorkbook.book.sheets[activeWorkbook.sheetIndex].cells.get(event.target.dataset.cell));event.target.classList.remove('is-editing');if(activeWorkbook.editingCell===event.target.dataset.cell){activeWorkbook.editingCell=null;activeWorkbook.historyGroup=null;}}
 });

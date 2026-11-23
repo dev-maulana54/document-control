@@ -266,20 +266,23 @@ const WorkbookEngine = (() => {
     if (!sheet || point.row > sheet.rows || point.column > sheet.columns) throw new Error('Sel di luar area template.');
     for (const merge of sheet.merges) if (point.row >= merge.first.row && point.row <= merge.last.row && point.column >= merge.first.column && point.column <= merge.last.column && reference !== merge.start) throw new Error('Pilih sel utama pada area yang digabung.');
     let cell = sheet.cells.get(reference);
-    if (cell && child(cell, 'f')) throw new Error('Sel rumus dipertahankan dari template dan tidak dapat diubah.');
+    if (!WorkbookFormulas.editable(cell,WorkbookEngine)) throw new Error('Rumus bersama atau array perlu diedit di Excel.');
     const parsed = XlsxPackage.inputValue(value);
+    const formula=parsed.value.startsWith('=');
     // Excel's Text format keeps subsequently typed digits as text, including
     // when the format comes from a row or column default.
     if(parsed.type==='n'){
       const styleId=cell?.getAttribute('s')??inheritedCellStyle(sheet,point);
       if(book.styles[Number(styleId)||0]?.numFmt===49)parsed.type='inlineStr';
     }
-    if (cellValue(book, cell) === parsed.value) return false;
+    if (WorkbookFormulas.input(book,cell,WorkbookEngine) === parsed.value) return false;
     const create = name => sheet.xml.createElementNS(sheet.xml.documentElement.namespaceURI, name);
     cell = ensureCell(sheet, reference);
-    for (const node of [...cell.children]) if (['v', 'is'].includes(node.localName)) node.remove();
+    if(child(cell,'f')||formula)book.formulasRemoved=true;
+    for (const node of [...cell.children]) if (['v', 'is','f'].includes(node.localName)) node.remove();
     cell.setAttribute('t', parsed.type);
-    if (parsed.type === 'n') { const node = create('v'); node.textContent = parsed.value; cell.appendChild(node); }
+    if(formula){cell.removeAttribute('t');const node=create('f');node.textContent=parsed.value.slice(1).split(/("(?:[^"]|"")*")/g).map((part,index)=>index%2?part:part.replace(/;/g,',')).join('');cell.appendChild(node);}
+    else if (parsed.type === 'n') { const node = create('v'); node.textContent = parsed.value; cell.appendChild(node); }
     else { const inline = create('is'), node = create('t'); node.setAttributeNS('http://www.w3.org/XML/1998/namespace', 'xml:space', 'preserve'); node.textContent = parsed.value; inline.appendChild(node); cell.appendChild(inline); }
     const dimension = elements(sheet.xml, 'dimension')[0]?.getAttribute('ref');
     const end = dimension ? XlsxPackage.position(dimension.split(':').pop()) : { row: 0, column: 0 };
@@ -289,6 +292,7 @@ const WorkbookEngine = (() => {
   }
 
   async function serialize(book) {
+    WorkbookFormulas.recalculate(book,WorkbookEngine);
     const writer = new XMLSerializer();
     await WorkbookMedia.serialize(book);
     await serializeWorkbookCellLinks(book);

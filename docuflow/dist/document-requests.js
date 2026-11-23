@@ -2,9 +2,94 @@
 
 const requestStatusLabels = { draft: 'Draft', admin_review: 'Pemeriksaan admin', in_review: 'Menunggu persetujuan', returned: 'Perlu perbaikan', approved: 'Siap diterbitkan', published: 'Sudah diterbitkan' };
 let requestListTab = 'incoming';
+let approvalListSearch = '', approvalListStatus = '';
+let approvalListPage = 1, approvalListPageSize = 10;
+
+function approvalPageWindow(count, requestedPage, size) {
+  const pages=Math.max(1,Math.ceil(count/size)),page=Math.max(1,Math.min(pages,requestedPage));
+  return {page,pages,start:(page-1)*size,end:Math.min(count,page*size)};
+}
+
+function approvalPaginationControls() {
+  return `<div class="approval-pagination"><div class="approval-page-size"><label for="approval-page-size-search">Dokumen per halaman</label><select id="approval-page-size" aria-label="Dokumen per halaman">${[10,25,50].map(size=>`<option value="${size}" ${size===approvalListPageSize?'selected':''}>${size}</option>`).join('')}</select></div><nav id="approval-page-controls" aria-label="Halaman persetujuan"></nav></div>`;
+}
 const requestBadge = request => `<span class="request-status request-${esc(request.status)}">${esc(requestStatusLabels[request.status] || request.status)}</span>`;
 const requestListBadge = (request, assigned) => !assigned && ['in_review', 'approved', 'published'].includes(request.status) ? '<span class="request-status request-done">Selesai</span>' : requestBadge(request);
 const requestNumberLabel = request => request.adminReviewRequired && !request.adminNumberSet && !request.sourceId && ['draft','returned','admin_review'].includes(request.status) ? 'Belum ditetapkan' : request.code;
+
+function approvalRequestMatches(request, search, status) {
+  const query=String(search||'').trim().toLocaleLowerCase('id');
+  const text=[request.title,request.code,userName(request.requesterId),...DocumentWorkflow.currentReviews(request).map(review=>userName(review.userId))].join(' ').toLocaleLowerCase('id');
+  return (!status||request.status===status)&&(!query||text.includes(query));
+}
+
+function requestApprovalList(request) {
+  const reviews=DocumentWorkflow.currentReviews(request);
+  if(!reviews.length)return '<span class="muted">Belum diajukan</span>';
+  const approved=reviews.filter(review=>review.status==='approved').length;
+  const active=['in_review','approved','published'].includes(request.status);
+  const cancelled=['draft','admin_review'].includes(request.status);
+  const order={pending:0,returned:1,approved:2};
+  return `<div class="approval-list"><div class="approval-list-summary">${cancelled?'Persetujuan sebelumnya dibatalkan':approved+' dari '+reviews.length+' setuju'}</div>${active?`<div class="approval-progress" role="progressbar" aria-label="Progres persetujuan" aria-valuenow="${approved}" aria-valuemin="0" aria-valuemax="${reviews.length}"><span style="width:${approved/reviews.length*100}%"></span></div>`:`<p class="approval-round-note">${cancelled?'Menunggu pengajuan ulang.':'Putaran ini dikembalikan untuk perbaikan.'}</p>`}<ul aria-label="Status setiap approver">${[...reviews].sort((a,b)=>(order[a.status]??3)-(order[b.status]??3)).map(review=>{
+    const status=cancelled?'cancelled':review.status;
+    const label=cancelled?'Dibatalkan':status==='approved'?'Sudah setuju':status==='returned'?'Dikembalikan':'Belum menyetujui';
+    return `<li><span class="approval-person">${esc(userName(review.userId))}</span><span class="approval-person-status approval-person-${esc(status)}">${label}</span></li>`;
+  }).join('')}</ul></div>`;
+}
+
+function approvalListTools() {
+  return `<div class="approval-list-tools"><div class="approval-search-field"><label for="approval-search">Cari persetujuan</label><div>${icon('search')}<input id="approval-search" type="search" maxlength="200" placeholder="Nama / nomor dokumen, pembuat, atau approver" value="${esc(approvalListSearch)}" aria-controls="approval-table-body"></div></div><div class="approval-status-field"><label for="approval-status-filter-search">Status dokumen</label><select id="approval-status-filter" aria-label="Status dokumen" aria-controls="approval-table-body">${[['','Semua status'],...Object.entries(requestStatusLabels)].map(([value,label])=>`<option value="${value}" ${approvalListStatus===value?'selected':''}>${label}</option>`).join('')}</select></div><button type="button" class="btn-link" data-approval-reset>Reset pencarian</button></div><p id="approval-result-count" class="approval-result-count" role="status"></p>`;
+}
+
+function updateApprovalListResults() {
+  if(currentRoute()!=='approvals')return;
+  let total=0;const matches=[];
+  const requestsById=new Map(db.documentRequests.map(request=>[request.id,request]));
+  for(const row of document.querySelectorAll('#approval-table-body [data-approval-request]')){
+    const request=requestsById.get(row.dataset.approvalRequest);
+    const visible=Boolean(request&&canRead(request)&&request.approverIds?.includes(currentUser.id));
+    row.hidden=true;if(visible)total++;
+    if(visible&&approvalRequestMatches(request,approvalListSearch,approvalListStatus))matches.push(row);
+  }
+  const count=matches.length,bounds=approvalPageWindow(count,approvalListPage,approvalListPageSize);
+  approvalListPage=bounds.page;
+  matches.slice(bounds.start,bounds.end).forEach(row=>{row.hidden=false;});
+  const empty=document.getElementById('approval-no-results');if(empty)empty.hidden=count>0||total===0;
+  const countNode=document.getElementById('approval-result-count');
+  if(countNode)countNode.textContent=count?`Menampilkan ${bounds.start+1}-${bounds.end} dari ${count} dokumen${count!==total?` (${total} total)`:''}`:`Menampilkan 0 dari ${total} dokumen`;
+  const controls=document.getElementById('approval-page-controls');
+  if(controls){
+    const numbers=[...new Set([1,bounds.page-1,bounds.page,bounds.page+1,bounds.pages])].filter(n=>n>=1&&n<=bounds.pages).sort((a,b)=>a-b);
+    const button=(page,label,content,disabled=false)=>`<button type="button" data-approval-page="${page}" aria-label="${label}" ${disabled?'disabled':''} ${page===bounds.page&&/^Halaman \d/.test(label)?'aria-current="page"':''}>${content}</button>`;
+    controls.innerHTML=button(bounds.page-1,'Halaman sebelumnya','Sebelumnya',bounds.page===1)+numbers.map((n,i)=>(i&&n>numbers[i-1]+1?'<span aria-hidden="true">…</span>':'')+button(n,'Halaman '+n,n)).join('')+button(bounds.page+1,'Halaman berikutnya','Berikutnya',bounds.page===bounds.pages);
+  }
+}
+
+document.addEventListener('input',event=>{
+  if(event.target.id==='approval-search'){approvalListSearch=event.target.value;approvalListPage=1;updateApprovalListResults();}
+});
+document.addEventListener('change',event=>{
+  if(event.target.id==='approval-status-filter'){approvalListStatus=event.target.value;approvalListPage=1;updateApprovalListResults();}
+  if(event.target.id==='approval-page-size'){
+    const size=Number(event.target.value);if(![10,25,50].includes(size))return;
+    approvalListPageSize=size;approvalListPage=1;updateApprovalListResults();
+  }
+});
+document.addEventListener('click',event=>{
+  const pageButton=event.target.closest('[data-approval-page]');
+  if(pageButton&&currentRoute()==='approvals'){
+    const nextPage=Number(pageButton.dataset.approvalPage);if(!Number.isInteger(nextPage)||pageButton.disabled)return;
+    const label=pageButton.getAttribute('aria-label');approvalListPage=nextPage;updateApprovalListResults();
+    const controls=document.getElementById('approval-page-controls');
+    [...controls.querySelectorAll('button')].find(button=>button.getAttribute('aria-label')===label&&!button.disabled)?.focus({preventScroll:true});
+    if(!controls.contains(document.activeElement))controls.querySelector('[aria-current="page"]')?.focus({preventScroll:true});
+    return;
+  }
+  if(!event.target.closest('[data-approval-reset]'))return;
+  approvalListSearch='';approvalListStatus='';approvalListPage=1;
+  const search=document.getElementById('approval-search'),status=document.getElementById('approval-status-filter');
+  if(search)search.value='';if(status){status.value='';refreshSearchSelect(status);}updateApprovalListResults();search?.focus();
+});
 
 function requestDeleteButton(request) {
   if (!isAdmin()) return '';
@@ -38,10 +123,10 @@ function documentRequestsPage(assigned = false) {
   return `${heading(assigned ? 'Persetujuan Dokumen' : 'Create / Revise Dokumen', assigned ? 'Tinjau isi dokumen dan berikan keputusan Anda. Semua approver wajib setuju.' : 'Kelola permintaan dokumen baru dan revisi sebelum diterbitkan ke daftar resmi.', assigned ? '' : '<a href="#create" class="btn btn-primary">' + icon('plus') + ' Buat Permintaan</a>')}
     <div class="request-stages" aria-label="Alur permintaan"><span>1. Edit dan submit</span><span>2. Pemeriksaan admin</span><span>3. ${assigned ? 'Persetujuan dan penerbitan' : 'Selesai'}</span></div>
     ${!assigned && isAdmin() ? `<div class="mode-switch" aria-label="Daftar dokumen"><button type="button" data-request-tab="incoming" class="${requestListTab==='incoming'?'active':''}" aria-pressed="${requestListTab==='incoming'}">Permintaan Masuk</button><button type="button" data-request-tab="mine" class="${requestListTab==='mine'?'active':''}" aria-pressed="${requestListTab==='mine'}">Dokumen Saya</button></div>` : ''}
-    <section class="panel"><div class="table-scroll"><table><caption class="visually-hidden">Daftar permintaan dokumen</caption><thead><tr><th>DOKUMEN</th><th>PERMINTAAN</th><th>PEMBUAT</th><th>STATUS</th>${assigned ? '<th>PERSETUJUAN</th>' : ''}<th>AKSI</th></tr></thead><tbody>${requests.map(request => {
-      const reviews = DocumentWorkflow.currentReviews(request), approved = reviews.filter(review => review.status === 'approved').length;
-      return `<tr><td><a href="#request-${esc(request.id)}"><strong>${esc(request.title)}</strong></a><div class="small muted">${esc(requestNumberLabel(request))} · Rev. ${formatRevision(request.revision)}</div></td><td>${request.sourceId ? 'Revisi dokumen' : 'Dokumen baru'}</td><td>${esc(userName(request.requesterId))}</td><td>${requestListBadge(request, assigned)}</td>${assigned ? `<td>${reviews.length ? approved + ' / ' + reviews.length + ' setuju' : 'Belum diajukan'}</td>` : ''}<td><div class="request-table-actions">${assigned && request.status === 'in_review' && request.requesterId !== currentUser.id && reviews.some(review => review.userId === currentUser.id && review.status === 'pending') ? (isPdfAttachment(request.attachment) ? `<button type="button" class="btn btn-primary" data-request-action="approval-pdf" data-id="${esc(request.id)}">${icon('eye')} Approval</button>` : `<a class="btn btn-secondary" href="#request-${esc(request.id)}">Approval</a>`) : !assigned && request.workbookKey ? `<button class="table-action" data-request-open="${canEditDocument(request)?'edit':'view'}" data-id="${esc(request.id)}">${icon(canEditDocument(request)?'edit':'eye')} ${canEditDocument(request)?'Edit Excel':'Lihat Excel'}</button>` : ''}${!assigned ? requestDeleteButton(request) : ''}</div></td></tr>`;
-    }).join('') || '<tr><td colspan="' + (assigned ? 6 : 5) + '"><div class="empty"><h2>Belum ada permintaan</h2><p>' + (assigned ? 'Permintaan yang membutuhkan persetujuan Anda akan muncul di sini.' : 'Mulai dengan membuat permintaan dokumen baru atau revisi.') + '</p></div></td></tr>'}</tbody></table></div></section>`;
+    <section class="panel ${assigned?'approval-table-panel':''}">${assigned?approvalListTools():''}<div class="table-scroll"><table ${assigned?'class="approval-table"':''}><caption class="visually-hidden">${assigned?'Daftar persetujuan dokumen dan status setiap approver':'Daftar permintaan dokumen'}</caption><thead><tr><th>DOKUMEN</th><th>PERMINTAAN</th><th>PEMBUAT</th><th>STATUS</th>${assigned ? '<th>PERSETUJUAN</th>' : ''}<th>AKSI</th></tr></thead><tbody ${assigned?'id="approval-table-body"':''}>${requests.map(request => {
+      const reviews = DocumentWorkflow.currentReviews(request);
+      return `<tr ${assigned?`data-approval-request="${esc(request.id)}" ${approvalRequestMatches(request,approvalListSearch,approvalListStatus)?'':'hidden'}`:''}><td><a href="#request-${esc(request.id)}"><strong>${esc(request.title)}</strong></a><div class="small muted">${esc(requestNumberLabel(request))} · Rev. ${formatRevision(request.revision)}</div></td><td>${request.sourceId ? 'Revisi dokumen' : 'Dokumen baru'}</td><td>${esc(userName(request.requesterId))}</td><td>${requestListBadge(request, assigned)}</td>${assigned ? `<td>${requestApprovalList(request)}</td>` : ''}<td><div class="request-table-actions">${assigned && request.status === 'in_review' && request.requesterId !== currentUser.id && reviews.some(review => review.userId === currentUser.id && review.status === 'pending') ? (isPdfAttachment(request.attachment) ? `<button type="button" class="btn btn-primary" data-request-action="approval-pdf" data-id="${esc(request.id)}">${icon('eye')} Approval</button>` : `<a class="btn btn-secondary" href="#request-${esc(request.id)}">Approval</a>`) : !assigned && request.workbookKey ? `<button class="table-action" data-request-open="${canEditDocument(request)?'edit':'view'}" data-id="${esc(request.id)}">${icon(canEditDocument(request)?'edit':'eye')} ${canEditDocument(request)?'Edit Excel':'Lihat Excel'}</button>` : assigned?`<a class="table-action" href="#request-${esc(request.id)}">Lihat detail</a>`:''}${!assigned ? requestDeleteButton(request) : ''}</div></td></tr>`;
+    }).join('') || '<tr><td colspan="' + (assigned ? 6 : 5) + '"><div class="empty"><h2>Belum ada permintaan</h2><p>' + (assigned ? 'Permintaan yang membutuhkan persetujuan Anda akan muncul di sini.' : 'Mulai dengan membuat permintaan dokumen baru atau revisi.') + '</p></div></td></tr>'}${assigned?'<tr id="approval-no-results" hidden><td colspan="6"><div class="empty"><h2>Tidak ada hasil yang cocok</h2><p>Coba kata kunci lain atau reset pencarian dan status.</p></div></td></tr>':''}</tbody></table></div>${assigned?approvalPaginationControls():''}</section>`;
 }
 
 function approverPicker(request) {

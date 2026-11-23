@@ -8,7 +8,7 @@ function workbookEditableReferences(address = workbookRange()) {
   const refs = WorkbookFormat.references(WorkbookFormat.range(sheet, address));
   for (const reference of refs) {
     const point = XlsxPackage.position(reference), cell = sheet.cells.get(reference);
-    if (WorkbookEngine.child(cell, 'f') || sheet.merges.some(merge => reference !== merge.start && point.row >= merge.first.row && point.row <= merge.last.row && point.column >= merge.first.column && point.column <= merge.last.column)) throw new Error('Area berisi rumus atau bagian sel gabungan. Pilih sel yang dapat diedit.');
+    if (!WorkbookFormulas.editable(cell,WorkbookEngine) || sheet.merges.some(merge => reference !== merge.start && point.row >= merge.first.row && point.row <= merge.last.row && point.column >= merge.first.column && point.column <= merge.last.column)) throw new Error('Area berisi rumus atau bagian sel gabungan. Pilih sel yang dapat diedit.');
   }
   return refs;
 }

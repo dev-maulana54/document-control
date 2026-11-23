@@ -262,6 +262,7 @@ function render() {
   document.getElementById('revise-source')?.addEventListener('change', event => renderRevisionFields(event.target.value));
   document.title = `${title} — PT Century Batteries Indonesia`;
   bindFilters();
+  if(route==='approvals')updateApprovalListResults();
   enhanceSelects(app);
   syncDocumentSource(document.getElementById('document-form'));
   if (route.startsWith('workbook-')) mountWorkbookEditor(route.slice(9));
@@ -1063,7 +1064,7 @@ document.addEventListener('click', event => {
     case 'edit-admin': showAdminForm(id); break;
     case 'profile': { const existing = document.querySelector('.profile-menu'); if (existing) { closeProfile(); break; } const el = document.createElement('div'); el.id = 'profile-menu'; el.className = 'profile-menu'; el.setAttribute('role', 'region'); el.setAttribute('aria-label', 'Profil pengguna'); el.innerHTML = `<strong>${esc(currentUser.name)}</strong><p>${esc(currentUser.email)}<br>${esc(departmentName(currentUser.departmentId))}<br>${esc(sectionName(currentUser.sectionId))}</p><button class="btn btn-secondary" data-action="signature-profile">Tanda Tangan Saya</button><button class="btn btn-secondary" data-action="logout">${icon('logout')} Keluar dari workspace</button>`; document.querySelector('.topbar').appendChild(el); target.setAttribute('aria-expanded', 'true'); el.querySelector('button').focus(); break; }
     case 'signature-profile': showSignatureForm(); break;
-    case 'logout': try { localStorage.removeItem(SESSION_KEY); } catch {} currentUser = null; page = 1; createMode = 'create'; adminTab = 'users'; requestListTab = 'incoming'; filter = { search: '', type: '', department: '', category: '' }; modal.close(); renderLogin(); break;
+    case 'logout': try { localStorage.removeItem(SESSION_KEY); } catch {} currentUser = null; page = 1; createMode = 'create'; adminTab = 'users'; requestListTab = 'incoming'; approvalListSearch = ''; approvalListStatus = ''; approvalListPage = 1; approvalListPageSize = 10; filter = { search: '', type: '', department: '', category: '' }; modal.close(); renderLogin(); break;
   }
 });
 

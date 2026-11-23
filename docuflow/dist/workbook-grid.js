@@ -152,7 +152,7 @@ function renderWorkbookGrid(state, writable, grid) {
           }
         }else for(const [side,border] of Object.entries(style.borders||{})){const horizontal=side==='top'||side==='bottom';borderEdges.push({x1:horizontal?bounds.left:bounds[side],x2:horizontal?bounds.right:bounds[side],y1:horizontal?bounds[side]:bounds.top,y2:horizontal?bounds[side]:bounds.bottom,border});}
         const input = document.createElement('textarea'); input.className = 'workbook-cell'; input.rows = 1; input.maxLength = 4000; input.dataset.cell = reference; input.setAttribute('aria-label', 'Sel ' + reference); input.spellcheck = false;
-        input.value = WorkbookFormat.display(state.book, cell); input.readOnly = !writable || Boolean(cell && WorkbookEngine.child(cell, 'f'));
+        input.value = WorkbookFormat.display(state.book, cell); input.readOnly = !writable || !WorkbookFormulas.editable(cell,WorkbookEngine);
         input.dataset.displayColor=style.color||'#152c49';
         input.style.height = Math.max(0, height - gridBorder) + 'px'; input.style.color = style.color || '#152c49'; input.style.fontSize = (style.fontSize || 11) + 'pt'; input.style.fontWeight = style.bold ? '700' : '400'; input.style.fontStyle = style.italic ? 'italic' : 'normal';
         input.style.fontFamily = style.fontName || 'Arial'; input.style.textDecoration = [style.underline?'underline':'',style.strike?'line-through':''].filter(Boolean).join(' ')||'none'; input.style.whiteSpace = style.wrap ? 'pre-wrap' : 'pre';

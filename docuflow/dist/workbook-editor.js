@@ -1,6 +1,48 @@
 'use strict';
 
 let activeWorkbook = null;
+function refreshWorkbookFormulaResults(){
+  const state=activeWorkbook;if(!state)return;
+  WorkbookFormulas.recalculate(state.book,WorkbookEngine);
+  const sheet=state.book.sheets[state.sheetIndex];
+  for(const input of document.querySelectorAll('.workbook-cell')){
+    if(input===document.activeElement||input.dataset.cell===state.editingCell)continue;
+    input.value=WorkbookFormat.display(state.book,sheet.cells.get(input.dataset.cell));
+  }
+  scheduleWorkbookOverflow();
+}
+
+document.addEventListener('change',event=>{
+  if(!event.target.matches('[data-workbook-function]')||!workbookDocument(true))return;
+  const fn=event.target.value;event.target.value='';if(!fn)return;
+  try{
+    const input=document.getElementById('workbook-cell-value');
+    if(input.disabled)throw new Error('Pilih sel yang dapat diedit.');
+    const formula='='+fn+'()';updateWorkbookCell(activeWorkbook.selected,formula);
+    input.focus();input.value=formula;input.setSelectionRange(formula.length-1,formula.length-1);
+  }catch(error){toast(error.message,true);}
+});
+document.addEventListener('click',event=>{
+  if(!event.target.closest('[data-workbook-autosum]')||!workbookDocument(true))return;
+  try{
+    const state=activeWorkbook,sheet=state.book.sheets[state.sheetIndex],point=XlsxPackage.position(state.selected);
+    if(WorkbookFormulas.input(state.book,sheet.cells.get(state.selected),WorkbookEngine)!=='')throw new Error('Pilih sel kosong untuk menaruh hasil AutoSum.');
+    const numeric=ref=>{const cell=sheet.cells.get(ref);return cell&&['n',null].includes(cell.getAttribute('t'))&&WorkbookEngine.value(state.book,cell)!=='';};
+    let refs=[];
+    for(let r=point.row-1;r>=1;r--){const ref=XlsxPackage.address(point.column,r);if(!numeric(ref))break;refs.unshift(ref);}
+    if(!refs.length)for(let c=point.column-1;c>=1;c--){const ref=XlsxPackage.address(c,point.row);if(!numeric(ref))break;refs.unshift(ref);}
+    if(!refs.length)throw new Error('Pilih sel kosong tepat di bawah atau di kanan deretan angka.');
+    updateWorkbookCell(state.selected,'=SUM('+refs[0]+':'+refs[refs.length-1]+')');renderWorkbookSheet();restoreWorkbookFocus();
+  }catch(error){toast(error.message,true);}
+});
+document.addEventListener('keydown',event=>{
+  if(event.target.id==='workbook-cell-value'&&event.key==='Enter'&&!event.shiftKey&&workbookDocument()){
+    event.preventDefault();renderWorkbookSheet();restoreWorkbookFocus();
+  }
+});
+document.addEventListener('focusout',event=>{
+  if(event.target.id==='workbook-cell-value'&&workbookDocument())refreshWorkbookFormulaResults();
+});
 const workbookRouteId = () => currentRoute().slice(9).split('?')[0];
 const workbookReadOnly = () => currentRoute().endsWith('?view');
 const workbookCanEdit = doc => !workbookReadOnly() && canEditDocument(doc);
@@ -45,6 +87,7 @@ function renderWorkbookSheet() {
   const writable = Boolean(workbookDocument(true));
   document.getElementById('workbook-tabs').innerHTML = state.book.sheets.map((sheet, index) => `<button type="button" role="tab" aria-selected="${index === state.sheetIndex}" data-sheet-index="${index}">${esc(sheet.name)}</button>`).join('');
   layoutWorkbookViewport(false);
+  WorkbookFormulas.recalculate(state.book,WorkbookEngine);
   renderWorkbookGrid(state, writable, document.getElementById('workbook-grid'));
   document.getElementById('workbook-grid').classList.toggle('hide-gridlines', state.view?.gridlines === false);
   document.querySelector('.workbook-formula-bar').hidden = state.view?.formula === false;
@@ -62,13 +105,14 @@ function selectWorkbookCell(reference) {
   input?.classList.add('is-selected');
   highlightWorkbookRange();
   document.getElementById('workbook-address').textContent = reference;
-  const value = document.getElementById('workbook-cell-value'); value.value = WorkbookEngine.value(state.book, sheet.cells.get(reference)); value.disabled = !workbookDocument(true) || Boolean(sheet.cells.get(reference) && WorkbookEngine.child(sheet.cells.get(reference), 'f'));
+  const value = document.getElementById('workbook-cell-value'); value.value = WorkbookFormulas.input(state.book, sheet.cells.get(reference),WorkbookEngine); value.disabled = !workbookDocument(true) || !WorkbookFormulas.editable(sheet.cells.get(reference),WorkbookEngine);
 }
 
 function updateWorkbookCell(reference, value) {
   if (!workbookDocument(true) || activeWorkbook.saving) throw new Error('Akses edit dokumen tidak tersedia.');
   workbookCheckpoint('typing-' + activeWorkbook.sheetIndex + '-' + reference);
   if (WorkbookEngine.setCell(activeWorkbook.book, activeWorkbook.sheetIndex, reference, value)) {
+    refreshWorkbookFormulaResults();
     activeWorkbook.dirty = true;
     activeWorkbook.edits++;
     document.getElementById('workbook-save-status').textContent = 'Perubahan belum disimpan';
@@ -144,7 +188,7 @@ document.addEventListener('input', event => {
     if (event.target.id === 'workbook-cell-value') { const input = document.querySelector(`.workbook-cell[data-cell="${reference}"]`); if (input) input.value = event.target.value; }
     else document.getElementById('workbook-cell-value').value = event.target.value;
   } catch (failure) {
-    const original = WorkbookEngine.value(activeWorkbook.book, activeWorkbook.book.sheets[activeWorkbook.sheetIndex].cells.get(reference));
+    const original = WorkbookFormulas.input(activeWorkbook.book, activeWorkbook.book.sheets[activeWorkbook.sheetIndex].cells.get(reference),WorkbookEngine);
     event.target.value = original;
     const cell = document.querySelector(`.workbook-cell[data-cell="${reference}"]`);
     if (cell) cell.value = original;

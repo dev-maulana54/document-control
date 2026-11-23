@@ -41,6 +41,46 @@ a { color:inherit; text-decoration:none; }
 h1,h2,h3,p { margin:0; }
 svg.icon { width:20px; height:20px; flex-shrink:0; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
 :focus-visible { outline:3px solid #709df1; outline-offset:3px; }
+.approval-list-tools{display:flex;align-items:flex-end;gap:16px;padding:20px 20px 12px;flex-wrap:wrap}
+.approval-search-field{flex:1;min-width:220px}
+.approval-list-tools label{display:block;margin-bottom:8px;font-size:12px;font-weight:600;color:var(--ink)}
+.approval-search-field>div{display:flex;align-items:center;position:relative}
+.approval-search-field .icon{position:absolute;left:12px;width:18px;height:18px;color:var(--muted);pointer-events:none}
+.approval-search-field input,.approval-status-field select{width:100%;min-height:42px;border:1px solid #b7c5d8;border-radius:6px;background:var(--surface);color:var(--ink);font-size:12px}
+.approval-search-field input{padding:10px 12px 10px 38px}
+.approval-status-field select{padding:10px 32px 10px 12px}
+.approval-status-field{min-width:210px}
+.panel.approval-table-panel{overflow:visible}
+.approval-status-field .form-combobox>input,.approval-page-size .form-combobox>input{width:100%;min-height:42px;border:1px solid #b7c5d8;border-radius:6px;background:var(--surface);color:var(--ink);padding:10px 40px 10px 12px;font-size:12px}
+.approval-pagination{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:16px 20px;border-top:1px solid var(--border)}
+.approval-page-size{display:flex;align-items:center;gap:12px;min-width:0}
+.approval-page-size label{font-size:12px;color:var(--muted)}
+.approval-page-size .form-combobox{width:88px}
+.approval-page-size .combo-options{min-width:88px}
+#approval-page-controls{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+#approval-page-controls button{min-width:36px;min-height:38px;border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:12px;background:var(--surface)}
+#approval-page-controls button:hover:not(:disabled){background:var(--blue-light);border-color:var(--blue)}
+#approval-page-controls [aria-current=page]{background:var(--blue);border-color:var(--blue);color:white;font-weight:700}
+@media(max-width:600px){.approval-pagination{padding:16px;gap:12px}#approval-page-controls{width:100%;justify-content:center}#approval-page-controls button{padding:8px;min-width:32px;font-size:11px}}
+.approval-list-tools .btn-link{min-height:42px;font-size:12px}
+.approval-result-count{padding:0 20px 16px;color:var(--muted);font-size:12px}
+.approval-table td{vertical-align:top;white-space:normal}
+.approval-table td:first-child{min-width:160px;overflow-wrap:anywhere}
+.approval-table td:nth-child(3){min-width:120px;overflow-wrap:anywhere}
+.approval-table .request-status{white-space:nowrap}
+.approval-list{min-width:256px;max-width:360px}
+.approval-list-summary{font-size:12px;font-weight:700;color:var(--ink);margin-bottom:8px}
+.approval-progress{height:5px;background:var(--border);border-radius:4px;overflow:hidden;margin-bottom:12px}
+.approval-progress>span{display:block;height:100%;background:var(--green);border-radius:inherit}
+.approval-list ul{list-style:none;padding:0;margin:0;display:grid;gap:8px}
+.approval-list li{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;line-height:1.5}
+.approval-person{color:var(--ink);font-size:12px;overflow-wrap:anywhere;min-width:0}
+.approval-person-status{flex-shrink:0;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;white-space:nowrap}
+.approval-person-pending,.approval-person-returned{color:var(--orange);background:var(--orange-bg)}
+.approval-person-approved{color:var(--green);background:var(--green-bg)}
+.approval-person-cancelled{color:var(--muted);background:var(--bg)}
+.approval-round-note{font-size:11px;line-height:1.5;margin:0 0 12px;color:var(--muted)}
+@media(max-width:600px){.approval-list-tools{padding:16px;gap:12px}.approval-search-field{flex-basis:100%;min-width:0}.approval-status-field{flex:1;min-width:0}.approval-result-count{padding:0 16px 16px}.approval-list{min-width:240px}.approval-table{min-width:880px}}
 input:focus,select:focus,textarea:focus { outline:2px solid var(--blue); outline-offset:2px; }
 [hidden] { display:none!important; }
 .muted { color:var(--muted); }
